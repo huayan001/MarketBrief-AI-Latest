@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MarketBrief_AI</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script>
+      (function () {
+        try {
+          var locale = localStorage.getItem("mb_locale");
+          document.documentElement.lang = locale === "en" ? "en" : "zh-CN";
+        } catch (e) {
+          document.documentElement.lang = "zh-CN";
+        }
+      })();
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+  </head>
+  <body>
+    <div id="loginGate" class="loginGate">
+      <div class="langSwitch loginLangSwitch" aria-label="Language">
+        <button type="button" class="langBtn" data-locale-btn="zh-CN">中</button>
+        <button type="button" class="langBtn" data-locale-btn="en">EN</button>
+      </div>
+      <div class="loginCard">
+        <div class="loginBrand">
+          <img src="/images/marketbrief-ai-logo.png" alt="MarketBrief_AI" class="loginLogo" />
+          <p data-i18n="login.subtitle">邮箱验证码登录后使用工作台</p>
+        </div>
+        <form id="loginForm" class="loginForm">
+          <label for="loginEmail" data-i18n="login.email">邮箱</label>
+          <input id="loginEmail" type="email" autocomplete="email" required placeholder="you@example.com" />
+          <label for="loginCode" data-i18n="login.code">验证码</label>
+          <div class="loginCodeRow">
+            <input
+              id="loginCode"
+              inputmode="numeric"
+              maxlength="6"
+              autocomplete="one-time-code"
+              data-i18n-placeholder="login.codePlaceholder"
+              placeholder="6 位验证码"
+            />
+            <button type="button" id="sendCodeBtn" class="ghost" data-i18n="login.sendCode">获取验证码</button>
+          </div>
+          <button type="submit" id="loginSubmit" data-i18n="login.submit">登录</button>
+          <p id="loginHint" class="loginHint" data-i18n="login.hint">未配置 SMTP 时，验证码会打印在服务端日志。</p>
+          <p id="loginError" class="loginError" hidden></p>
+        </form>
+      </div>
+    </div>
+
+    <div id="appShell" class="shell" hidden>
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brandLogoFrame">
+            <img src="/images/marketbrief-ai-logo.png" alt="MarketBrief_AI" class="brandLogo" />
+          </div>
+          <p data-i18n="brand.tagline">多市场交易分析工作台</p>
+        </div>
+
+        <form id="symbolForm" class="search">
+          <label for="symbolInput" data-i18n="search.symbol">标的代码</label>
+          <div class="searchRow">
+            <input
+              id="symbolInput"
+              autocomplete="off"
+              value="AAPL"
+              data-i18n-placeholder="search.placeholder"
+              placeholder="AAPL / 002859 / 0700.HK / BTC-USD"
+            />
+            <button type="submit" data-i18n="search.analyze">分析</button>
+          </div>
+          <div class="searchTools">
+            <button type="button" id="addWatch" class="ghost" data-i18n="search.addWatch">加入关注</button>
+            <button type="button" id="searchSymbol" class="ghost" data-i18n="search.lookup">查找代码</button>
+          </div>
+          <div id="symbolSuggestions" class="symbolSuggestions" hidden></div>
+        </form>
+
+        <button type="button" id="mobileListsToggle" class="ghost mobileListsToggle">展开最近记录与关注列表</button>
+
+        <section class="history">
+          <div class="sectionHead">
+            <h2 data-i18n="section.recent">最近代码</h2>
+            <button id="toggleRecentCodes" class="ghost">更多</button>
+          </div>
+          <div id="recentCodeList" class="historyList"></div>
+        </section>
+
+        <section class="history">
+          <div class="sectionHead">
+            <h2 data-i18n="section.reports">历史报告</h2>
+            <button id="refreshReports" class="ghost" data-i18n="action.refresh">刷新</button>
+          </div>
+          <div id="historyList" class="historyList"></div>
+        </section>
+
+        <section class="history">
+          <div class="sectionHead">
+            <h2 data-i18n="section.watch">关注股票</h2>
+            <button id="scanWatch" class="ghost" data-i18n="action.scan">扫描</button>
+          </div>
+          <div id="watchList" class="historyList"></div>
+        </section>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" id="assetType">等待分析</p>
+            <h2 id="title">输入代码开始</h2>
+          </div>
+          <div class="topbarRight">
+            <div class="langSwitch" aria-label="Language">
+              <button type="button" class="langBtn" data-locale-btn="zh-CN">中</button>
+              <button type="button" class="langBtn" data-locale-btn="en">EN</button>
+            </div>
+            <div class="userChip" id="userChip" hidden>
+              <span id="userEmail"></span>
+              <span id="planBadge" class="planBadge">Free</span>
+              <button
+                type="button"
+                id="planDetailsBtn"
+                class="ghost compactButton"
+                data-i18n="plan.usage"
+              >
+                套餐与用量
+              </button>
+              <button type="button" id="briefSettingsBtn" class="ghost compactButton" data-i18n="brief.title">
+                自动简报
+              </button>
+              <button type="button" id="feedbackBtn" class="ghost compactButton" data-i18n="feedback.title">反馈</button>
+              <button
+                type="button"
+                id="checkoutBtn"
+                class="paymentButton"
+                data-i18n="plan.upgrade"
+              >
+                升级 Pro
+              </button>
+              <button
+                type="button"
+                id="managePlanBtn"
+                class="ghost compactButton"
+                data-i18n="plan.manage"
+                hidden
+              >
+                管理订阅
+              </button>
+              <button type="button" id="logoutBtn" class="ghost" data-i18n="action.logout">退出</button>
+              <span id="usageSummary" class="usageSummary"></span>
+              <span id="paymentStatus" class="paymentStatus" role="status" hidden></span>
+            </div>
+            <div class="status" id="statusText">本地运行 · 不自动下单</div>
+          </div>
+        </header>
+
+        <section class="metrics">
+          <div class="metric signalMetric" id="signalMetric">
+            <span data-i18n="metric.signal">买卖信号</span>
+            <strong id="signalLabel">--</strong>
+          </div>
+          <div class="metric">
+            <span data-i18n="metric.price">最新价</span>
+            <strong id="price">--</strong>
+          </div>
+          <div class="metric">
+            <span data-i18n="metric.change">涨跌幅</span>
+            <strong id="change">--</strong>
+          </div>
+          <div class="metric">
+            <span data-i18n="metric.volume">成交量</span>
+            <strong id="volume">--</strong>
+          </div>
+          <div class="metric">
+            <span data-i18n="metric.overall">综合评分</span>
+            <strong id="overall">--</strong>
+          </div>
+        </section>
+
+        <section id="dataWarnings" class="dataWarnings" hidden></section>
+
+        <section id="dataHealth" class="dataHealth" hidden></section>
+
+        <section class="scannerPanel">
+          <div class="panelHead">
+            <h3 data-i18n="scanner.title">自选股雷达</h3>
+            <div class="scannerActions">
+              <select id="scanSort" data-i18n-aria="scanner.sortAria" aria-label="排序">
+                <option value="overall" data-i18n="scanner.sortOverall">综合评分</option>
+                <option value="change" data-i18n="scanner.sortChange">涨跌幅</option>
+                <option value="risk" data-i18n="scanner.sortRisk">风险评分</option>
+                <option value="signal" data-i18n="scanner.sortSignal">信号强度</option>
+              </select>
+              <button id="scanWatchTop" data-i18n="scanner.scanWatch">扫描关注</button>
+            </div>
+          </div>
+          <div id="scanSummary" class="scanSummary">关注股票后，一键扫描信号变化。</div>
+          <div id="scanResults" class="scanResults"></div>
+          <div id="signalChanges" class="signalChanges"></div>
+        </section>
+
+        <section id="timeframeSignals" class="timeframeSignals">
+          <div class="emptyNews">完成分析后显示短线、波段和中线观察信号。</div>
+        </section>
+
+        <section class="workspace">
+          <div class="chartPanel">
+            <div class="panelHead">
+              <h3 id="priceChartTitle">K 线与均线</h3>
+              <div id="quoteDate" class="muted">--</div>
+            </div>
+            <div id="priceChart" class="chart"></div>
+            <div id="priceChartLegend" class="chartValueLegend"></div>
+            <div id="marketBrief" class="marketBrief"></div>
+          </div>
+
+          <div class="sidePanel">
+            <div class="scoreGrid">
+              <div>
+                <span data-i18n="score.trend">趋势</span>
+                <b id="scoreTrend">--</b>
+              </div>
+              <div>
+                <span data-i18n="score.momentum">动量</span>
+                <b id="scoreMomentum">--</b>
+              </div>
+              <div>
+                <span data-i18n="score.volume">量能</span>
+                <b id="scoreVolume">--</b>
+              </div>
+              <div>
+                <span data-i18n="score.risk">风险</span>
+                <b id="scoreRisk">--</b>
+              </div>
+            </div>
+            <div class="indicatorList" id="indicatorList"></div>
+            <div id="signalDetail" class="signalDetail emptySignal">等待分析信号</div>
+          </div>
+        </section>
+
+        <section class="lowerGrid">
+          <div class="chartPanel">
+            <div class="panelHead">
+              <h3 id="indicatorChartTitle">RSI / MACD</h3>
+              <div id="indicatorChartMeta" class="muted">技术指标</div>
+            </div>
+            <div id="indicatorChart" class="chart small"></div>
+            <div id="indicatorChartLegend" class="chartValueLegend"></div>
+          </div>
+
+          <div class="reportPanel">
+            <div class="panelHead">
+              <div>
+                <h3 data-i18n="report.title">AI 分析报告</h3>
+                <div class="muted" id="aiStatus">检测 AI 配置...</div>
+              </div>
+              <button id="generateReport" disabled data-i18n="report.generate">生成并保存</button>
+            </div>
+            <div id="reportBody" class="reportBody empty">先输入代码并完成行情分析。</div>
+          </div>
+
+          <section class="newsPanel">
+            <div class="panelHead">
+              <h3 data-i18n="news.title">新闻资讯</h3>
+              <div class="muted" id="newsCount">等待分析</div>
+            </div>
+            <div id="newsList" class="newsList">
+              <div class="emptyNews">输入代码后显示相关市场新闻。</div>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="planDialog" class="planDialog" aria-labelledby="planDialogTitle">
+      <div class="planDialogInner">
+        <header class="planDialogHeader">
+          <div>
+            <p class="eyebrow" data-i18n="plan.eyebrow">MARKETBRIEF AI</p>
+            <h2 id="planDialogTitle" data-i18n="plan.title">套餐与用量</h2>
+          </div>
+          <button type="button" id="closePlanDialog" class="ghost dialogClose" data-i18n="plan.close">
+            关闭
+          </button>
+        </header>
+
+        <section class="currentPlanPanel">
+          <div>
+            <span data-i18n="plan.current">当前套餐</span>
+            <strong id="dialogPlanName">Free</strong>
+          </div>
+          <p id="subscriptionStatus" class="subscriptionStatus"></p>
+        </section>
+
+        <section class="usagePanel">
+          <h3 data-i18n="plan.currentUsage">本周期用量</h3>
+          <div class="usageMeter">
+            <div>
+              <span data-i18n="plan.analysisDaily">单标分析 · 每日</span>
+              <strong id="analysisUsageText">0 / 10</strong>
+            </div>
+            <progress id="analysisUsageBar" value="0" max="10"></progress>
+          </div>
+          <div class="usageMeter">
+            <div>
+              <span data-i18n="plan.scanDaily">雷达扫描 · 每日</span>
+              <strong id="scanUsageText">0 / 1</strong>
+            </div>
+            <progress id="scanUsageBar" value="0" max="1"></progress>
+          </div>
+          <div class="usageMeter">
+            <div>
+              <span data-i18n="plan.aiMonthly">AI 深度报告 · 每月</span>
+              <strong id="aiUsageText">0 / 5</strong>
+            </div>
+            <progress id="aiUsageBar" value="0" max="5"></progress>
+          </div>
+        </section>
+
+        <section class="planComparison" aria-label="Free and Pro plans">
+          <article class="planCard">
+            <div class="planCardHead">
+              <h3>Free</h3>
+              <strong data-i18n="plan.freePrice">永久免费</strong>
+            </div>
+            <p data-i18n="plan.freePromise">完整完成单次研究</p>
+            <ul>
+              <li data-i18n="plan.freeAnalysis">每日 10 次单标分析</li>
+              <li data-i18n="plan.freeWatch">5 个关注标的，1 次/日雷达</li>
+              <li data-i18n="plan.freeAi">每月 5 次 AI 报告</li>
+              <li data-i18n="plan.freeHistory">10 份报告，7 天信号历史</li>
+            </ul>
+          </article>
+          <article class="planCard featured">
+            <div class="planCardHead">
+              <h3>Pro</h3>
+              <strong data-i18n="plan.proPrice">US$19.99/月</strong>
+            </div>
+            <p data-i18n="plan.proPromise">持续监控并节省研究时间</p>
+            <ul>
+              <li data-i18n="plan.proAnalysis">每日 200 次单标分析</li>
+              <li data-i18n="plan.proWatch">30 个关注标的，10 次/日雷达</li>
+              <li data-i18n="plan.proAi">每月 100 次 AI 报告</li>
+              <li data-i18n="plan.proHistory">200 份报告，90 天信号历史</li>
+            </ul>
+          </article>
+        </section>
+
+        <section class="planActions">
+          <div>
+            <strong data-i18n="plan.fallbackTitle">免费额度用完仍可继续研究</strong>
+            <p data-i18n="plan.fallbackBody">AI 次数用完后自动生成本地规则报告，不会锁住基础行情与图表。</p>
+          </div>
+          <div class="planActionButtons">
+            <button type="button" id="upgradeProBtn" data-i18n="plan.upgradePrice">
+              升级 Pro · US$19.99/月
+            </button>
+            <button
+              type="button"
+              id="cancelSubscriptionBtn"
+              class="ghost dangerAction"
+              data-i18n="plan.cancel"
+              hidden
+            >
+              取消订阅
+            </button>
+          </div>
+        </section>
+        <p class="testEnvironmentNote" data-i18n="plan.testEnvironment">
+          当前仅连接 Waffo Test，不会产生真实扣款。
+        </p>
+      </div>
+    </dialog>
+
+    <dialog id="briefDialog" class="planDialog" aria-labelledby="briefDialogTitle">
+      <form id="briefForm" class="planDialogInner">
+        <header class="planDialogHeader">
+          <div>
+            <p class="eyebrow">MARKETBRIEF AI</p>
+            <h2 id="briefDialogTitle" data-i18n="brief.title">自动简报</h2>
+          </div>
+          <button type="button" id="closeBriefDialog" class="ghost dialogClose" data-i18n="plan.close">关闭</button>
+        </header>
+        <p class="muted" data-i18n="brief.description">每天自动扫描关注列表，只推送达到条件的重要变化。</p>
+        <div id="briefSetupChecklist" class="historyList"></div>
+        <label class="briefToggle"><input id="briefEnabled" type="checkbox" /> <span data-i18n="brief.enabled">启用每日简报</span></label>
+        <div class="briefFields">
+          <label><span data-i18n="brief.time">推送时间</span><input id="briefTime" type="time" value="18:00" required /></label>
+          <label><span data-i18n="brief.timezone">时区</span><select id="briefTimezone"><option value="Asia/Shanghai">Asia/Shanghai</option><option value="Asia/Hong_Kong">Asia/Hong_Kong</option><option value="America/New_York">America/New_York</option><option value="Europe/London">Europe/London</option></select></label>
+          <label><span data-i18n="brief.confidence">最低置信度</span><input id="briefConfidence" type="number" min="0" max="100" step="5" value="40" /></label>
+        </div>
+        <label class="briefToggle"><input id="briefOnlyChanges" type="checkbox" checked /> <span data-i18n="brief.onlyChanges">仅推送新信号或信号变化</span></label>
+        <fieldset class="briefChannels">
+          <legend data-i18n="brief.channels">通知渠道</legend>
+          <label><input type="checkbox" value="email" data-brief-channel /> 邮件</label>
+          <label><input type="checkbox" value="wechat" data-brief-channel /> 企业微信</label>
+          <label><input type="checkbox" value="feishu" data-brief-channel /> 飞书</label>
+          <label><input type="checkbox" value="telegram" data-brief-channel /> Telegram</label>
+        </fieldset>
+        <p id="briefChannelStatus" class="muted"></p>
+        <details class="historyItem">
+          <summary data-i18n="brief.configureChannels">配置个人推送渠道（Pro）</summary>
+          <div class="briefFields channelConfigFields">
+            <label><span>渠道</span><select id="channelConfigType"><option value="wechat">企业微信</option><option value="feishu">飞书</option><option value="telegram">Telegram</option></select></label>
+            <label id="webhookConfigField"><span>Webhook HTTPS URL</span><input id="channelWebhookUrl" type="url" autocomplete="off" /></label>
+            <label id="telegramTokenField" hidden><span>Bot Token</span><input id="telegramBotToken" type="password" autocomplete="new-password" /></label>
+            <label id="telegramChatField" hidden><span>Chat ID</span><input id="telegramChatId" type="text" autocomplete="off" /></label>
+          </div>
+          <div class="planActionButtons">
+            <button type="button" id="saveChannelConfig" data-i18n="brief.saveChannel">加密保存渠道</button>
+            <button type="button" id="deleteChannelConfig" class="ghost dangerAction" data-i18n="brief.deleteChannel">删除该渠道配置</button>
+          </div>
+          <p id="channelConfigStatus" class="muted"></p>
+        </details>
+        <div class="planActionButtons">
+          <button type="submit" id="saveBriefSettings" data-i18n="brief.save">保存设置</button>
+          <button type="button" id="runBriefNow" class="ghost" data-i18n="brief.runNow">立即生成一次</button>
+          <button type="button" id="testBriefChannel" class="ghost" data-i18n="brief.testChannel">测试所选渠道</button>
+        </div>
+        <p id="briefStatus" class="paymentStatus" role="status"></p>
+        <section>
+          <h3 data-i18n="brief.jobs">最近任务</h3>
+          <div id="briefJobs" class="historyList"></div>
+        </section>
+        <section>
+          <h3 data-i18n="brief.history">最近推送</h3>
+          <div id="briefDeliveries" class="historyList"></div>
+        </section>
+      </form>
+    </dialog>
+
+    <dialog id="feedbackDialog" class="planDialog" aria-labelledby="feedbackDialogTitle">
+      <form id="feedbackForm" class="planDialogInner">
+        <header class="planDialogHeader">
+          <div><p class="eyebrow">MARKETBRIEF AI</p><h2 id="feedbackDialogTitle" data-i18n="feedback.title">产品反馈</h2></div>
+          <button type="button" id="closeFeedbackDialog" class="ghost dialogClose" data-i18n="plan.close">关闭</button>
+        </header>
+        <label><span data-i18n="feedback.category">反馈类型</span><select id="feedbackCategory"><option value="general">一般建议</option><option value="bug">功能异常</option><option value="report">报告质量</option><option value="notification">推送问题</option><option value="pricing">价格与套餐</option></select></label>
+        <label><span data-i18n="feedback.message">请告诉我们哪里最需要改进</span><textarea id="feedbackMessage" rows="6" minlength="5" maxlength="1000" required></textarea></label>
+        <button type="submit" id="submitFeedback" data-i18n="feedback.submit">提交反馈</button>
+        <p id="feedbackStatus" class="paymentStatus" role="status"></p>
+      </form>
+    </dialog>
+
+    <script src="/locales/zh-CN.js"></script>
+    <script src="/locales/en.js"></script>
+    <script src="/i18n.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>

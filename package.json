@@ -1,0 +1,15 @@
+{
+  "name": "marketbrief-ai",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test waffo/*.test.mjs",
+    "waffo:webhook": "node waffo/configure-webhook.mjs"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@waffo/pancake-ts": "^0.17.0"
+  }
+}
