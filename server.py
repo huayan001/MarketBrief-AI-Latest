@@ -651,12 +651,33 @@ def scan_symbols(symbols: list[str]) -> list[dict[str, Any]]:
     return results
 
 
+def _is_tokenized_equity_name(name: str) -> bool:
+    lowered = name.lower()
+    return any(hint in lowered for hint in ("tokenized", "tokenised", "prestocks"))
+
+
+def crypto_quote_is_expected(symbol: str, meta: dict[str, Any]) -> bool:
+    """True when Yahoo's -USD quote is the cryptocurrency the user asked for.
+
+    ``BTC-USD`` resolves to instrument type CRYPTOCURRENCY. That is a correct
+    mapping, not a US stock ticker with a stray ``-USD`` suffix. Tokenized
+    equities (PreStocks and similar wrappers) keep the mapping warning.
+    """
+    name = str(meta.get("longName") or meta.get("shortName") or "")
+    if _is_tokenized_equity_name(name):
+        return False
+    instrument = str(meta.get("instrumentType") or meta.get("quoteType") or "").strip().upper()
+    if instrument in {"CRYPTOCURRENCY", "CRYPTO"}:
+        return True
+    return detect_asset_type(symbol) == "crypto"
+
+
 def build_data_health(symbol: str, meta: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
     warnings = []
     exchange = meta.get("exchangeName") or meta.get("fullExchangeName") or ""
     name = meta.get("longName") or meta.get("shortName") or symbol
     suggestions = []
-    if symbol.endswith("-USD") and exchange == "CCC":
+    if symbol.endswith("-USD") and exchange == "CCC" and not crypto_quote_is_expected(symbol, meta):
         base_symbol = symbol.removesuffix("-USD")
         suggestions.append({"symbol": base_symbol, "reason": "去掉 -USD 后按股票代码重试"})
         warnings.append(
