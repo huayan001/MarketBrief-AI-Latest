@@ -7,9 +7,12 @@ import os
 import smtplib
 import ssl
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 from email.message import EmailMessage
+from email.policy import SMTP
+from email.utils import getaddresses
 from typing import Any
 
 
@@ -28,6 +31,50 @@ def channel_status(user_configs: dict[str, Any] | None = None) -> dict[str, bool
         "feishu": "feishu" in user_configs,
         "telegram": "telegram" in user_configs,
     }
+
+
+def normalize_outbound_text(value: str) -> str:
+    """Make notification text safe for ASCII SMTP transports.
+
+    Yahoo headlines and formatted prices often contain U+00A0 (NBSP) and
+    other Unicode spaces. ``smtplib`` encodes a text payload with the ascii
+    codec, which raises ``UnicodeEncodeError`` on those characters. Map every
+    Unicode space separator to a normal space and drop a leading BOM. Other
+    non-ASCII (Chinese, etc.) is preserved and MIME-encoded as UTF-8 later.
+    """
+    chars: list[str] = []
+    for char in str(value or ""):
+        if char == "\ufeff":
+            continue
+        if unicodedata.category(char) == "Zs":
+            chars.append(" ")
+        else:
+            chars.append(char)
+    return "".join(chars)
+
+
+def _single_line(value: str) -> str:
+    return " ".join(normalize_outbound_text(value).splitlines()).strip()
+
+
+def bare_addresses(value: str) -> list[str]:
+    found = [addr for _, addr in getaddresses([str(value or "")]) if addr]
+    return found or ([str(value).strip()] if str(value or "").strip() else [])
+
+
+def build_email_message(sender: str, recipient: str, subject: str, text: str) -> EmailMessage:
+    """Build a 7-bit UTF-8 message whose serialized form is pure ASCII.
+
+    Quoted-printable/base64 body plus RFC 2047 headers means ``str.encode('ascii')``
+    — the call inside ``smtplib.SMTP.sendmail`` — cannot crash on NBSP or CJK.
+    """
+    policy = SMTP.clone(cte_type="7bit", utf8=False)
+    message = EmailMessage(policy=policy)
+    message["Subject"] = _single_line(subject)
+    message["From"] = _single_line(sender)
+    message["To"] = _single_line(recipient)
+    message.set_content(normalize_outbound_text(text), subtype="plain", charset="utf-8")
+    return message
 
 
 def _post_json(url: str, payload: dict[str, Any]) -> None:
@@ -61,11 +108,14 @@ def send_email(recipient: str, subject: str, text: str) -> None:
     sender = os.environ.get("SMTP_FROM", "").strip() or user
     if not sender:
         raise NotificationError("SMTP_FROM 或 SMTP_USER 未配置")
-    message = EmailMessage()
-    message["Subject"] = subject
-    message["From"] = sender
-    message["To"] = recipient
-    message.set_content(text)
+    message = build_email_message(sender, recipient, subject, text)
+    # Bytes are already 7-bit ASCII. Passing a str into sendmail() would
+    # encode with ascii and crash on NBSP (\xa0) or any other non-ASCII.
+    payload = message.as_bytes(policy=message.policy)
+    envelope_from = bare_addresses(str(message["From"]))
+    envelope_to = bare_addresses(str(message["To"]))
+    if not envelope_from or not envelope_to:
+        raise NotificationError("SMTP 发件人或收件人地址无效")
     context = ssl.create_default_context()
     use_ssl = os.environ.get("SMTP_USE_SSL", "1").lower() not in {"0", "false", "no"}
     use_tls = os.environ.get("SMTP_USE_TLS", "0").lower() in {"1", "true", "yes"}
@@ -73,7 +123,7 @@ def send_email(recipient: str, subject: str, text: str) -> None:
         with smtplib.SMTP_SSL(host, port, timeout=20, context=context) as client:
             if user:
                 client.login(user, password)
-            client.send_message(message)
+            client.sendmail(envelope_from[0], envelope_to, payload)
         return
     with smtplib.SMTP(host, port, timeout=20) as client:
         client.ehlo()
@@ -82,7 +132,7 @@ def send_email(recipient: str, subject: str, text: str) -> None:
             client.ehlo()
         if user:
             client.login(user, password)
-        client.send_message(message)
+        client.sendmail(envelope_from[0], envelope_to, payload)
 
 
 def send(
@@ -93,6 +143,8 @@ def send(
     config: dict[str, Any] | None = None,
 ) -> None:
     config = config or {}
+    subject = normalize_outbound_text(subject)
+    text = normalize_outbound_text(text)
     if channel == "email":
         send_email(recipient, subject, text)
         return
