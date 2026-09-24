@@ -385,17 +385,46 @@ def fetch_json_with_retries(hosts: list[str], path: str, attempts_per_host: int 
     raise RuntimeError("无法连接行情数据源：" + "；".join(errors[-4:]))
 
 
-def fetch_yahoo_news(symbol: str, limit: int = 8) -> list[dict[str, Any]]:
-    encoded = urllib.parse.quote(symbol, safe="")
-    try:
-        payload = fetch_json_with_retries(
-            ["query1.finance.yahoo.com", "query2.finance.yahoo.com"],
-            f"/v1/finance/search?q={encoded}&quotesCount=0&newsCount={limit}&enableFuzzyQuery=false",
-            attempts_per_host=1,
-        )
-    except Exception:
-        return []
+def yahoo_news_queries(symbol: str, meta: dict[str, Any] | None = None) -> list[str]:
+    """Ordered Yahoo news searches for one instrument.
 
+    ``/v1/finance/search`` returns no news for hyphenated crypto pairs
+    (``BTC-USD``) or exchange-suffixed listings (``0700.HK``). When the
+    symbol itself is empty, try the crypto base ticker and the chart
+    short/long name already loaded for the analysis. Trailing ``USD`` is
+    removed from those names because ``Bitcoin USD`` is also empty while
+    ``Bitcoin`` is not. The bare local code (``0700``) is not queried.
+    """
+    meta = meta or {}
+    queries: list[str] = []
+
+    def add(query: str) -> None:
+        text = " ".join(str(query or "").split())
+        if not text:
+            return
+        if any(text.casefold() == existing.casefold() for existing in queries):
+            return
+        queries.append(text)
+
+    add(symbol)
+    if symbol.endswith("-USD"):
+        add(symbol[: -len("-USD")])
+    for key in ("shortName", "longName"):
+        add(_news_query_from_instrument_name(meta.get(key)))
+    return queries
+
+
+def _news_query_from_instrument_name(name: Any) -> str:
+    if not isinstance(name, str):
+        return ""
+    text = " ".join(name.split())
+    parts = text.split(" ")
+    if len(parts) >= 2 and parts[-1].upper() == "USD":
+        return " ".join(parts[:-1]).strip()
+    return text
+
+
+def _yahoo_news_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
     news_items = []
     for item in payload.get("news") or []:
         title = item.get("title") or ""
@@ -416,7 +445,63 @@ def fetch_yahoo_news(symbol: str, limit: int = 8) -> list[dict[str, Any]]:
                 "type": item.get("type") or "story",
             }
         )
-    return news_items[:limit]
+    return news_items
+
+
+def _unique_news_items(
+    items: list[dict[str, Any]],
+    seen_titles: set[str],
+    seen_links: set[str],
+) -> list[dict[str, Any]]:
+    fresh = []
+    for item in items:
+        title_key = " ".join(item["title"].casefold().split())
+        link_key = (item.get("link") or "").strip()
+        if title_key in seen_titles or (link_key and link_key in seen_links):
+            continue
+        seen_titles.add(title_key)
+        if link_key:
+            seen_links.add(link_key)
+        fresh.append(item)
+    return fresh
+
+
+def _load_yahoo_news_query(query: str, limit: int) -> list[dict[str, Any]]:
+    encoded = urllib.parse.quote(query, safe="")
+    try:
+        payload = fetch_json_with_retries(
+            ["query1.finance.yahoo.com", "query2.finance.yahoo.com"],
+            f"/v1/finance/search?q={encoded}&quotesCount=0&newsCount={limit}&enableFuzzyQuery=false",
+            attempts_per_host=1,
+        )
+        if not isinstance(payload, dict):
+            return []
+        return _yahoo_news_items(payload)
+    except Exception:
+        return []
+
+
+def fetch_yahoo_news(
+    symbol: str,
+    limit: int = 8,
+    meta: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    if limit <= 0:
+        return []
+    queries = yahoo_news_queries(symbol, meta)
+    collected: list[dict[str, Any]] = []
+    seen_titles: set[str] = set()
+    seen_links: set[str] = set()
+    for index, query in enumerate(queries):
+        fresh = _unique_news_items(_load_yahoo_news_query(query, limit), seen_titles, seen_links)
+        if index == 0:
+            if fresh:
+                return fresh[:limit]
+            continue
+        collected.extend(fresh)
+        if len(collected) >= limit:
+            return collected[:limit]
+    return collected[:limit]
 
 
 def fetch_yahoo_search(query: str, limit: int = 8) -> list[dict[str, Any]]:
@@ -562,7 +647,10 @@ def clamp(value: float, low: float = 0, high: float = 100) -> float:
 
 def build_analysis(symbol: str, include_news: bool = True) -> dict[str, Any]:
     raw = fetch_yahoo_chart(symbol)
-    news = fetch_yahoo_news(symbol) if include_news else []
+    chart_meta = raw.get("meta")
+    if not isinstance(chart_meta, dict):
+        chart_meta = None
+    news = fetch_yahoo_news(symbol, meta=chart_meta) if include_news else []
     cleaned = clean_series(raw)
     rows = cleaned["rows"]
     closes = [float(row["close"]) for row in rows]
