@@ -326,7 +326,7 @@
             </div>
             <div class="momentumActions">
               <button id="toggleTradeReview" aria-controls="tradeReviewBody" hidden type="button" class="ghost" aria-expanded="true">收起</button>
-              <button id="loadTradeReview" type="button">读取成交并复盘</button>
+              <button id="loadTradeReview" type="button" data-i18n="tradeReview.load">读取成交并复盘</button>
             </div>
           </div>
           <div class="momentumMeta">
@@ -334,7 +334,7 @@
             <span>不会买入、卖出、改单或撤单</span>
           </div>
           <div id="tradeReviewBody" class="tradeReviewBody">
-            <div class="momentumStatus"><strong>等待复盘</strong><span>点击按钮后读取当前 Longbridge OpenAPI 账户的成交记录。</span></div>
+            <div class="momentumStatus"><strong data-i18n="tradeReview.waiting">等待复盘</strong><span data-i18n="tradeReview.waitingDetail">点击按钮读取成交。尚未连接 Longbridge 时，这里会提示先完成配置，而不是显示空白结果。</span></div>
           </div>
         </section>
 

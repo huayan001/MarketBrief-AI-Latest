@@ -1,4 +1,5 @@
 import unittest
+from unittest import mock
 
 import trade_review
 
@@ -35,6 +36,16 @@ class TradeReviewTests(unittest.TestCase):
         self.assertIn("开盘确认不足", report["trades"][1]["issues"])
         self.assertIn("市价单滑点风险", report["trades"][2]["issues"])
         self.assertIn("选股质量不足", report["trades"][2]["issues"])
+
+    def test_missing_longbridge_config_is_an_empty_not_connected_review(self):
+        review = trade_review.not_connected_review()
+        self.assertFalse(review["connected"])
+        self.assertEqual(review["code"], "not_connected")
+        self.assertEqual(review["summary"]["trade_count"], 0)
+        self.assertEqual(review["trades"], [])
+        with mock.patch("momentum_scanner._client_id", side_effect=RuntimeError("未找到 Longbridge OAuth 配置")):
+            self.assertFalse(trade_review.longbridge_configured())
+        self.assertTrue(trade_review.looks_unconfigured(RuntimeError("Longbridge 授权已失效")))
 
 
 if __name__ == "__main__":

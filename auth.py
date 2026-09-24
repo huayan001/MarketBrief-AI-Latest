@@ -9,7 +9,6 @@ import secrets
 import smtplib
 import ssl
 from datetime import datetime, timedelta
-from email.message import EmailMessage
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler
 from typing import Any
@@ -72,21 +71,26 @@ def send_login_email(email: str, code: str) -> None:
     use_ssl = _env_flag("SMTP_USE_SSL", "1" if port == 465 else "0")
     use_tls = _env_flag("SMTP_USE_TLS", "0" if use_ssl else "1")
 
-    message = EmailMessage()
-    message["Subject"] = "MarketBrief_AI 登录验证码"
-    message["From"] = from_addr
-    message["To"] = email
-    message.set_content(
+    # Local import avoids a cycle: notifications does not import auth.
+    from notifications import bare_addresses, build_email_message
+
+    message = build_email_message(
+        from_addr,
+        email,
+        "MarketBrief_AI 登录验证码",
         f"你的登录验证码是：{code}\n\n"
-        f"验证码 {CODE_TTL_SECONDS // 60} 分钟内有效。如非本人操作请忽略本邮件。\n"
+        f"验证码 {CODE_TTL_SECONDS // 60} 分钟内有效。如非本人操作请忽略本邮件。\n",
     )
+    payload = message.as_bytes(policy=message.policy)
+    envelope_from = bare_addresses(str(message["From"]))
+    envelope_to = bare_addresses(str(message["To"]))
 
     context = ssl.create_default_context()
     if use_ssl:
         with smtplib.SMTP_SSL(host, port, timeout=20, context=context) as smtp:
             if user:
                 smtp.login(user, password)
-            smtp.send_message(message)
+            smtp.sendmail(envelope_from[0], envelope_to, payload)
         return
 
     with smtplib.SMTP(host, port, timeout=20) as smtp:
@@ -96,7 +100,7 @@ def send_login_email(email: str, code: str) -> None:
             smtp.ehlo()
         if user:
             smtp.login(user, password)
-        smtp.send_message(message)
+        smtp.sendmail(envelope_from[0], envelope_to, payload)
 
 
 def create_login_code(email: str, request_ip: str | None = None) -> dict[str, Any]:

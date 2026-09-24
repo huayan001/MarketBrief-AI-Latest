@@ -322,6 +322,60 @@ class PaymentRouteTests(unittest.TestCase):
         self.assertIsNone(payload["order"])
         lookup.assert_called_once_with(99, "order-for-user")
 
+    def test_stale_test_unknown_order_is_not_subscription_state(self):
+        user = {"id": 31, "email": "owner@example.com"}
+        unknown = {
+            "external_id": "unknown-order",
+            "status": "unknown",
+            "environment": "test",
+            "order_kind": "subscription",
+        }
+        grant = {
+            "plan_code": "pro_monthly",
+            "status": "trial",
+            "source": "owner_grant",
+            "active_until": datetime(2026, 12, 1),
+        }
+        with (
+            mock.patch.object(app_server.auth, "current_user", return_value=user),
+            mock.patch.object(app_server.db, "get_payment_order", return_value=unknown),
+            running_server() as base_url,
+        ):
+            status, payload = request_json(
+                f"{base_url}/api/payments/status?order=unknown-order",
+            )
+        self.assertEqual(status, 200)
+        self.assertIsNone(payload["order"])
+
+        with (
+            mock.patch.object(entitlements.db, "get_active_entitlement", return_value=grant),
+            mock.patch.object(entitlements.db, "get_usage_counts", return_value={}),
+            mock.patch.object(entitlements.db, "get_subscription", return_value=None),
+        ):
+            snapshot = entitlements.entitlement_snapshot(31)
+        self.assertEqual(snapshot["plan"], "pro")
+        self.assertEqual(snapshot["source"], "owner_grant")
+        self.assertEqual(snapshot["limits"]["analysis_daily"], 200)
+        self.assertIsNone(snapshot["subscription"])
+
+    def test_pending_test_order_is_still_returned(self):
+        user = {"id": 31, "email": "owner@example.com"}
+        pending = {
+            "external_id": "pending-order",
+            "status": "pending",
+            "environment": "test",
+        }
+        with (
+            mock.patch.object(app_server.auth, "current_user", return_value=user),
+            mock.patch.object(app_server.db, "get_payment_order", return_value=pending),
+            running_server() as base_url,
+        ):
+            status, payload = request_json(
+                f"{base_url}/api/payments/status?order=pending-order",
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["order"]["status"], "pending")
+
 
 class EntitlementRouteTests(unittest.TestCase):
     user = {"id": 31, "email": "quota@example.com"}
@@ -351,6 +405,40 @@ class EntitlementRouteTests(unittest.TestCase):
         self.assertEqual(payload["code"], "quota_exceeded")
         self.assertEqual(payload["metric"], "analysis_daily")
         build.assert_not_called()
+
+    def test_analyze_accepts_json_post_with_the_same_symbol_as_get(self):
+        usage = {
+            "allowed": True,
+            "metric": "analysis_daily",
+            "period_key": "2026-09-24",
+            "used": 1,
+            "limit": 10,
+        }
+
+        def fake_analysis(symbol):
+            return {"symbol": symbol, "asset_type": "us_stock"}
+
+        with (
+            mock.patch.object(app_server.auth, "current_user", return_value=self.user),
+            mock.patch.object(app_server.entitlements, "consume_or_raise", return_value=usage),
+            mock.patch.object(app_server, "build_analysis", side_effect=fake_analysis) as build,
+            running_server() as base_url,
+        ):
+            get_status, get_payload = request_json(f"{base_url}/api/analyze?symbol=aapl")
+            post_status, post_payload = request_json(
+                f"{base_url}/api/analyze",
+                method="POST",
+                body=json.dumps({"symbol": "aapl"}).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+
+        self.assertEqual(get_status, 200)
+        self.assertEqual(post_status, 200)
+        self.assertEqual(get_payload["symbol"], "AAPL")
+        self.assertEqual(post_payload["symbol"], "AAPL")
+        self.assertEqual(get_payload["entitlement_usage"]["metric"], "analysis_daily")
+        self.assertEqual(post_payload["entitlement_usage"]["metric"], "analysis_daily")
+        self.assertEqual([call.args[0] for call in build.call_args_list], ["AAPL", "AAPL"])
 
     def test_failed_market_data_request_refunds_analysis_quota(self):
         usage = {

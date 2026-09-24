@@ -61,6 +61,42 @@ def _issues(trade: dict[str, Any]) -> list[str]:
     return issues
 
 
+def not_connected_review() -> dict[str, Any]:
+    """Empty review used when Longbridge is not configured or not authorized."""
+    payload = build_trade_review([])
+    payload.update({
+        "connected": False,
+        "execution_count": 0,
+        "provider": "Longbridge OpenAPI · read only",
+        "code": "not_connected",
+    })
+    return payload
+
+
+def longbridge_configured() -> bool:
+    try:
+        import momentum_scanner
+
+        momentum_scanner._client_id()
+    except Exception:
+        return False
+    return True
+
+
+def looks_unconfigured(exc: BaseException) -> bool:
+    text = f"{type(exc).__name__} {exc}".lower()
+    return any(
+        needle in text
+        for needle in (
+            "oauth",
+            "授权",
+            "未找到 longbridge",
+            "尚未安装",
+            "longbridge_oauth",
+        )
+    )
+
+
 def build_trade_review(trades: list[dict[str, Any]]) -> dict[str, Any]:
     reviewed = [{**trade, "issues": _issues(trade)} for trade in trades]
     pnls = [value for trade in trades if (value := _number(trade.get("pnl"))) is not None]

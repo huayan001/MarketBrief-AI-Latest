@@ -748,12 +748,35 @@ def scan_symbols(symbols: list[str]) -> list[dict[str, Any]]:
     return results
 
 
+def _is_tokenized_equity_name(name: str) -> bool:
+    lowered = name.lower()
+    return any(hint in lowered for hint in ("tokenized", "tokenised", "prestocks", "xstock"))
+
+
+def crypto_quote_is_expected(symbol: str, meta: dict[str, Any]) -> bool:
+    """True when a Yahoo ``-USD`` quote is the cryptocurrency the user asked for.
+
+    ``BTC-USD`` resolves to instrument type CRYPTOCURRENCY. That is a correct
+    mapping, not a US stock ticker with a stray ``-USD`` suffix. Tokenized
+    equities (PreStocks, xStock, and similar wrappers) keep the mapping warning.
+    """
+    name = str(meta.get("longName") or meta.get("shortName") or "")
+    if _is_tokenized_equity_name(name):
+        return False
+    instrument = str(meta.get("instrumentType") or meta.get("quoteType") or "").strip().upper()
+    if instrument in {"CRYPTOCURRENCY", "CRYPTO"}:
+        return True
+    if instrument:
+        return False
+    return detect_asset_type(symbol) == "crypto"
+
+
 def build_data_health(symbol: str, meta: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
     warnings = []
     exchange = meta.get("exchangeName") or meta.get("fullExchangeName") or ""
     name = meta.get("longName") or meta.get("shortName") or symbol
     suggestions = []
-    if symbol.endswith("-USD") and exchange == "CCC":
+    if symbol.endswith("-USD") and exchange == "CCC" and not crypto_quote_is_expected(symbol, meta):
         base_symbol = symbol.removesuffix("-USD")
         suggestions.append({"symbol": base_symbol, "reason": "去掉 -USD 后按股票代码重试"})
         warnings.append(
@@ -800,7 +823,40 @@ def build_data_health(symbol: str, meta: dict[str, Any], rows: list[dict[str, An
 
 def build_data_warnings(health: dict[str, Any]) -> list[str]:
     return list(health.get("warnings") or [])
-    return warnings
+
+
+def public_payment_order(order: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Drop stale test-environment unknown orders from subscription-facing reads.
+
+    A checkout that never received a provider result is stored as ``unknown``.
+    That is not an active subscription, and it must not override owner or Pro
+    grants shown by the entitlement snapshot.
+    """
+    if not order:
+        return None
+    environment = str(order.get("environment") or "").strip().lower()
+    status = str(order.get("status") or "").strip().lower()
+    if environment == "test" and status == "unknown":
+        return None
+    return order
+
+
+def respond_analysis(handler: BaseHTTPRequestHandler, user: dict[str, Any], symbol: str) -> None:
+    usage = entitlements.consume_or_raise(
+        int(user["id"]),
+        "analysis_daily",
+    )
+    try:
+        analysis = build_analysis(symbol)
+    except Exception:
+        entitlements.refund(
+            int(user["id"]),
+            "analysis_daily",
+            period_key=usage.get("period_key"),
+        )
+        raise
+    analysis["entitlement_usage"] = usage
+    json_response(handler, analysis)
 
 
 def statistics_like_daily_volatility(values: list[float]) -> float:
@@ -1560,27 +1616,13 @@ class Handler(BaseHTTPRequestHandler):
                 if path == "/api/payments/status":
                     query = urllib.parse.parse_qs(parsed.query)
                     external_id = str((query.get("order") or [""])[0]).strip()[:64] or None
-                    order = db.get_payment_order(int(user["id"]), external_id)
+                    order = public_payment_order(db.get_payment_order(int(user["id"]), external_id))
                     json_response(self, {"order": order})
                     return
                 if path == "/api/analyze":
                     query = urllib.parse.parse_qs(parsed.query)
                     symbol = normalize_symbol((query.get("symbol") or [""])[0])
-                    usage = entitlements.consume_or_raise(
-                        int(user["id"]),
-                        "analysis_daily",
-                    )
-                    try:
-                        analysis = build_analysis(symbol)
-                    except Exception:
-                        entitlements.refund(
-                            int(user["id"]),
-                            "analysis_daily",
-                            period_key=usage.get("period_key"),
-                        )
-                        raise
-                    analysis["entitlement_usage"] = usage
-                    json_response(self, analysis)
+                    respond_analysis(self, user, symbol)
                     return
                 if path == "/api/reports":
                     report_limit = entitlements.limit_for(
@@ -1631,13 +1673,20 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 if path == "/api/trade-review":
                     entitlements.require_pro(int(user["id"]), "us_momentum")
+                    if not trade_review.longbridge_configured():
+                        json_response(self, trade_review.not_connected_review())
+                        return
                     try:
                         executions = trade_review.load_longbridge_executions(days=7)
                         round_trips = trade_review.round_trips_from_executions(executions)
                         result = trade_review.build_trade_review(round_trips)
                         result["execution_count"] = len(executions)
                         result["provider"] = "Longbridge OpenAPI · read only"
+                        result["connected"] = True
                     except Exception as exc:
+                        if trade_review.looks_unconfigured(exc):
+                            json_response(self, trade_review.not_connected_review())
+                            return
                         json_response(
                             self,
                             {"error": f"读取 Longbridge 成交记录失败：{str(exc) or type(exc).__name__}", "code": "trade_review_failed"},
@@ -1801,6 +1850,10 @@ class Handler(BaseHTTPRequestHandler):
             if not user:
                 return
             user_id = int(user["id"])
+
+            if path == "/api/analyze":
+                respond_analysis(self, user, normalize_symbol(str(payload.get("symbol") or "")))
+                return
 
             if path == "/api/payments/checkout":
                 external_id = str(uuid.uuid4())
@@ -2486,6 +2539,8 @@ class Handler(BaseHTTPRequestHandler):
             if not str(file_path).startswith(str(STATIC_DIR.resolve())):
                 text_response(self, b"Forbidden", "text/plain", 403)
                 return
+            if file_path.is_dir():
+                file_path = file_path / "index.html"
         if not file_path.exists() or not file_path.is_file():
             text_response(self, b"Not found", "text/plain", 404)
             return

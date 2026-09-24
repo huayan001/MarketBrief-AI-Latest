@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 import os
+import threading
 import unittest
+import urllib.request
+from datetime import datetime, timedelta, timezone
+from email import message_from_bytes
+from email.policy import default as default_policy
+from http.server import ThreadingHTTPServer
 from unittest import mock
 
 import auth
@@ -110,6 +116,91 @@ class NotificationTests(unittest.TestCase):
         self.assertEqual(attempts, 2)
         self.assertEqual(send.call_count, 2)
 
+    def test_nbsp_at_position_24_survives_ascii_smtp_encoding(self):
+        # smtplib.SMTP.sendmail encodes a str payload with the ascii codec.
+        # NBSP at index 24 is the production crash:
+        # UnicodeEncodeError: 'ascii' codec can't encode character '\xa0'
+        # in position 24.
+        ascii_with_nbsp = ("P" * 24) + "\u00a0" + "USD"
+        with self.assertRaises(UnicodeEncodeError) as raised:
+            ascii_with_nbsp.encode("ascii")
+        self.assertEqual(raised.exception.start, 24)
+        self.assertEqual(raised.exception.object[24], "\u00a0")
+        normalized_ascii = notifications.normalize_outbound_text(ascii_with_nbsp)
+        normalized_ascii.encode("ascii")
+        self.assertEqual(normalized_ascii[24], " ")
+
+        body = ("P" * 24) + "\u00a0" + "美元 简报"
+        subject = "MarketBrief AI\u00a0每日简报"
+        self.assertNotIn("\u00a0", notifications.normalize_outbound_text(body))
+        self.assertNotIn("\u00a0", notifications.normalize_outbound_text(subject))
+
+        message = notifications.build_email_message(
+            "MarketBrief AI <noreply@example.com>",
+            "user@example.com",
+            subject,
+            body,
+        )
+        raw = message.as_bytes(policy=message.policy)
+        if isinstance(raw, str):
+            encoded = raw.encode("ascii")
+        else:
+            encoded = raw
+            raw.decode("ascii")
+        message.as_string().encode("ascii")
+        parsed = message_from_bytes(encoded, policy=default_policy)
+        rendered = parsed.get_content()
+        self.assertIn("美元", rendered)
+        self.assertIn("简报", rendered)
+        self.assertNotIn("\u00a0", rendered)
+        self.assertEqual(parsed["Subject"], "MarketBrief AI 每日简报")
+        self.assertIn("=?utf-8?", message.as_string())
+
+    def test_send_email_transmits_ascii_payload_for_unicode_brief(self):
+        captured: dict[str, object] = {}
+
+        class DummySMTP:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def login(self, user, password):
+                captured["password"] = password
+                return None
+
+            def sendmail(self, from_addr, to_addrs, msg):
+                if isinstance(msg, str):
+                    msg = msg.encode("ascii")
+                else:
+                    msg.decode("ascii")
+                captured["from"] = from_addr
+                captured["to"] = to_addrs
+                captured["msg"] = msg
+
+        env = {
+            "SMTP_HOST": "smtp.example.test",
+            "SMTP_PORT": "465",
+            "SMTP_USER": "noreply@example.com",
+            "SMTP_PASSWORD": "abcd\u00a0efgh",
+            "SMTP_FROM": "MarketBrief AI <noreply@example.com>",
+            "SMTP_USE_SSL": "1",
+            "SMTP_USE_TLS": "0",
+        }
+        body = ("P" * 24) + "\u00a0" + "美元"
+        with mock.patch.dict(os.environ, env, clear=False):
+            with mock.patch.object(notifications.smtplib, "SMTP_SSL", DummySMTP):
+                notifications.send_email("user@example.com", "每日简报\u00a0", body)
+        self.assertEqual(captured["from"], "noreply@example.com")
+        self.assertEqual(captured["to"], ["user@example.com"])
+        self.assertEqual(captured["password"], "abcdefgh")
+        self.assertIn(b"utf-8", captured["msg"])
+        self.assertNotIn("\u00a0".encode("utf-8"), captured["msg"])
+
     def test_permanent_failure_reports_retry_count(self):
         with (
             mock.patch.object(notifications, "send", side_effect=RuntimeError("offline")) as send,
@@ -136,6 +227,80 @@ class SchedulerTests(unittest.TestCase):
             scheduler.run_once()
         runner.assert_called_once()
         self.assertRegex(runner.call_args.args[0]["local_date"], r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _recent_bars(count: int = 40) -> list[dict[str, str]]:
+    today = datetime.now(timezone.utc).date()
+    return [
+        {"date": (today - timedelta(days=count - 1 - index)).isoformat()}
+        for index in range(count)
+    ]
+
+
+class DataHealthTests(unittest.TestCase):
+    def test_btc_usd_crypto_is_not_a_mapping_mismatch(self):
+        health = server.build_data_health(
+            "BTC-USD",
+            {
+                "exchangeName": "CCC",
+                "instrumentType": "CRYPTOCURRENCY",
+                "shortName": "Bitcoin USD",
+                "longName": "Bitcoin USD",
+                "currency": "USD",
+            },
+            _recent_bars(),
+        )
+        self.assertEqual(health["status"], "ok")
+        self.assertEqual(health["status_label"], "数据正常")
+        self.assertEqual(health["suggestions"], [])
+        self.assertFalse(any("去掉 -USD" in item for item in health["warnings"]))
+        self.assertEqual(server.detect_asset_type("BTC-USD"), "crypto")
+
+    def test_aapl_equity_stays_ok(self):
+        health = server.build_data_health(
+            "AAPL",
+            {
+                "exchangeName": "NMS",
+                "instrumentType": "EQUITY",
+                "shortName": "Apple Inc.",
+            },
+            _recent_bars(),
+        )
+        self.assertEqual(health["status"], "ok")
+        self.assertEqual(health["suggestions"], [])
+
+    def test_tokenized_equity_with_usd_suffix_still_warns(self):
+        health = server.build_data_health(
+            "SPACEX-USD",
+            {
+                "exchangeName": "CCC",
+                "instrumentType": "CRYPTOCURRENCY",
+                "shortName": "SpaceX tokenized stock (PreStocks) USD",
+            },
+            _recent_bars(),
+        )
+        self.assertEqual(health["status"], "mismatch")
+        self.assertEqual(health["status_label"], "疑似代码映射错误")
+        self.assertEqual(health["suggestions"][0]["symbol"], "SPACEX")
+        self.assertTrue(any("去掉 -USD" in item for item in health["warnings"]))
+
+
+class MarketingPageTests(unittest.TestCase):
+    def test_footer_marketing_routes_return_html(self):
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        base = f"http://127.0.0.1:{httpd.server_address[1]}"
+        try:
+            for route in ("/reports/", "/learn/", "/pricing/", "/about/", "/methodology/", "/us-stocks/"):
+                with urllib.request.urlopen(base + route, timeout=3) as response:
+                    body = response.read().decode("utf-8")
+                    self.assertEqual(response.status, 200, route)
+                    self.assertIn("<title>", body)
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+            thread.join(timeout=2)
 
 
 class SecretStoreTests(unittest.TestCase):

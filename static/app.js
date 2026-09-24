@@ -354,6 +354,14 @@ async function pollPaymentOrder(orderId, returnedFromCheckout = false) {
         rememberPaymentOrder("");
         return;
       }
+      if (!order || order.status === "unknown") {
+        setPaymentState();
+        $("checkoutBtn").disabled = false;
+        $("upgradeProBtn").disabled = false;
+        cleanPaymentReturnParam(orderId);
+        rememberPaymentOrder("");
+        return;
+      }
       setPaymentState(
         returnedFromCheckout ? "payment.waitingWebhook" : "payment.awaiting",
         null,
@@ -599,6 +607,23 @@ function startSendCodeCooldown(seconds) {
   }, 1000);
 }
 
+function setLoginHintKey(key) {
+  const hint = $("loginHint");
+  if (!hint) return;
+  hint.setAttribute("data-i18n", key);
+  hint.textContent = t(key);
+}
+
+async function refreshLoginDeliveryHint() {
+  try {
+    const response = await fetch("/api/health", { credentials: "include" });
+    const data = await response.json();
+    setLoginHintKey(data?.channels?.email ? "login.hintSent" : "login.hintLog");
+  } catch {
+    /* Keep the static hint if health cannot be read. */
+  }
+}
+
 async function sendLoginCode() {
   setLoginError("");
   const email = $("loginEmail").value.trim();
@@ -612,7 +637,7 @@ async function sendLoginCode() {
       method: "POST",
       body: JSON.stringify({ email }),
     });
-    $("loginHint").textContent = data.delivery === "server_log" ? t("login.hintLog") : t("login.hintSent");
+    setLoginHintKey(data.delivery === "server_log" ? "login.hintLog" : "login.hintSent");
     startSendCodeCooldown(60);
   } catch (error) {
     $("sendCodeBtn").disabled = false;
@@ -1615,9 +1640,16 @@ function renderTradeReview(data) {
   const issues = Object.entries(data?.issue_counts || {}).sort((a, b) => b[1] - a[1]);
   const toggle = $("toggleTradeReview");
   toggle.hidden = false;
-  toggle.textContent = tradeReviewCollapsed ? "展开" : "收起";
+  toggle.textContent = tradeReviewCollapsed ? t("momentum.expand") : t("momentum.collapse");
   toggle.setAttribute("aria-expanded", tradeReviewCollapsed ? "false" : "true");
   $("tradeReviewBody").hidden = tradeReviewCollapsed;
+  if (data?.connected === false || data?.code === "not_connected") {
+    $("tradeReviewBody").innerHTML = `<div class="momentumStatus"><strong>${escapeHtml(t("tradeReview.notConnected"))}</strong><span>${escapeHtml(t("tradeReview.configure"))}</span></div>`;
+    return;
+  }
+  const emptyCopy = trades.length
+    ? ""
+    : `<div class="momentumStatus"><strong>${escapeHtml(t("tradeReview.noTrades"))}</strong><span>${escapeHtml(t("tradeReview.noTradesDetail", { count: fmt(data?.execution_count, 0) }))}</span></div>`;
   $("tradeReviewBody").innerHTML = `
     <div class="tradeReviewMetrics">
       <article><span>已配对交易</span><strong>${fmt(summary.trade_count, 0)}</strong></article>
@@ -1627,13 +1659,13 @@ function renderTradeReview(data) {
       <article><span>已实现盈亏</span><strong class="${Number(summary.net_pnl) >= 0 ? "positive" : "negative"}">$${fmt(summary.net_pnl)}</strong></article>
     </div>
     <div class="tradeIssueSummary">${issues.length ? issues.map(([name, count]) => `<span>${escapeHtml(name)} · ${count}</span>`).join("") : "暂未识别出重复问题"}</div>
-    <div class="momentumResults">${trades.length ? `<table class="momentumTable tradeReviewTable"><thead><tr><th>股票</th><th>入场/离场</th><th>价格</th><th>数量</th><th>盈亏</th><th>问题分类</th></tr></thead><tbody>${trades.map((trade) => `<tr><td><strong>${escapeHtml(trade.symbol || "--")}</strong></td><td>${escapeHtml(trade.entry_time || "--")} → ${escapeHtml(trade.exit_time || "--")}</td><td>$${fmt(trade.entry_price)} → $${fmt(trade.exit_price)}</td><td>${fmt(trade.quantity, 0)}</td><td class="${Number(trade.pnl) >= 0 ? "positive" : "negative"}">$${fmt(trade.pnl)}</td><td>${(trade.issues || []).map((issue) => `<span class="reviewIssue">${escapeHtml(issue)}</span>`).join("") || "—"}</td></tr>`).join("")}</tbody></table>` : `<div class="momentumStatus"><strong>没有可配对的已完成交易</strong><span>读取到 ${fmt(data?.execution_count, 0)} 条成交记录。</span></div>`}</div>`;
+    <div class="momentumResults">${trades.length ? `<table class="momentumTable tradeReviewTable"><thead><tr><th>${escapeHtml(t("tradeReview.colSymbol"))}</th><th>${escapeHtml(t("tradeReview.colTimes"))}</th><th>${escapeHtml(t("tradeReview.colPrice"))}</th><th>${escapeHtml(t("tradeReview.colQty"))}</th><th>${escapeHtml(t("tradeReview.colPnl"))}</th><th>${escapeHtml(t("tradeReview.colIssues"))}</th></tr></thead><tbody>${trades.map((trade) => `<tr><td><strong>${escapeHtml(trade.symbol || "--")}</strong></td><td>${escapeHtml(trade.entry_time || "--")} → ${escapeHtml(trade.exit_time || "--")}</td><td>$${fmt(trade.entry_price)} → $${fmt(trade.exit_price)}</td><td>${fmt(trade.quantity, 0)}</td><td class="${Number(trade.pnl) >= 0 ? "positive" : "negative"}">$${fmt(trade.pnl)}</td><td>${(trade.issues || []).map((issue) => `<span class="reviewIssue">${escapeHtml(issue)}</span>`).join("") || "—"}</td></tr>`).join("")}</tbody></table>` : emptyCopy}</div>`;
 }
 
 function toggleTradeReview() {
   tradeReviewCollapsed = !tradeReviewCollapsed;
   $("tradeReviewBody").hidden = tradeReviewCollapsed;
-  $("toggleTradeReview").textContent = tradeReviewCollapsed ? "展开" : "收起";
+  $("toggleTradeReview").textContent = tradeReviewCollapsed ? t("momentum.expand") : t("momentum.collapse");
   $("toggleTradeReview").setAttribute("aria-expanded", tradeReviewCollapsed ? "false" : "true");
 }
 
@@ -1643,15 +1675,20 @@ async function loadTradeReview() {
   $("toggleTradeReview").hidden = true;
   $("tradeReviewBody").hidden = false;
   button.disabled = true;
-  button.textContent = "读取中...";
-  $("tradeReviewBody").innerHTML = `<div class="momentumStatus"><strong>正在读取成交记录</strong><span>仅执行历史成交查询。</span></div>`;
+  button.textContent = t("tradeReview.loadingButton");
+  $("tradeReviewBody").innerHTML = `<div class="momentumStatus"><strong>${escapeHtml(t("tradeReview.loading"))}</strong><span>${escapeHtml(t("tradeReview.loadingDetail"))}</span></div>`;
   try {
     renderTradeReview(await fetchJson("/api/trade-review"));
   } catch (error) {
-    $("tradeReviewBody").innerHTML = `<div class="momentumStatus error"><strong>复盘失败</strong><span>${escapeHtml(error.message)}</span></div>`;
+    const notConnected = error.code === "not_connected" || error.status === 503 && /oauth|授权|longbridge/i.test(error.message || "");
+    if (notConnected) {
+      renderTradeReview({ connected: false, code: "not_connected", trades: [], summary: {} });
+    } else {
+      $("tradeReviewBody").innerHTML = `<div class="momentumStatus error"><strong>${escapeHtml(t("tradeReview.failed"))}</strong><span>${escapeHtml(error.message)}</span></div>`;
+    }
   } finally {
     button.disabled = false;
-    button.textContent = "读取成交并复盘";
+    button.textContent = t("tradeReview.load");
   }
 }
 
@@ -2303,6 +2340,7 @@ window.rerenderI18n = function rerenderI18n() {
 (async function init() {
   applyIdleShellCopy();
   setStatusKey("topbar.statusIdle");
+  await refreshLoginDeliveryHint();
   await loadSiteFooter().catch(() => {});
   const loggedIn = await refreshSession();
   if (loggedIn) await bootstrapApp();
