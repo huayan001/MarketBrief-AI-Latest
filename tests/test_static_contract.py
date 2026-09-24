@@ -10,6 +10,13 @@ STATIC = ROOT / "static"
 
 
 class StaticContractTests(unittest.TestCase):
+    def test_trade_review_exposes_collapsible_results_control(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertRegex(
+            html,
+            r'id="toggleTradeReview"[^>]+aria-controls="tradeReviewBody"[^>]+hidden',
+        )
+
     def test_every_javascript_element_reference_exists(self):
         app = (STATIC / "app.js").read_text(encoding="utf-8")
         html = (STATIC / "index.html").read_text(encoding="utf-8")

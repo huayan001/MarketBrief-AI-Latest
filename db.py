@@ -303,6 +303,16 @@ def ensure_schema() -> None:
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """,
         """
+        CREATE TABLE IF NOT EXISTS site_settings (
+            setting_key VARCHAR(64) NOT NULL PRIMARY KEY,
+            value_json JSON NOT NULL,
+            updated_by BIGINT UNSIGNED NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            CONSTRAINT fk_site_settings_user FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """,
+        """
         CREATE TABLE IF NOT EXISTS notification_channel_configs (
             user_id BIGINT UNSIGNED NOT NULL,
             channel VARCHAR(32) NOT NULL,
@@ -312,6 +322,15 @@ def ensure_schema() -> None:
             updated_at DATETIME NOT NULL,
             PRIMARY KEY (user_id, channel),
             CONSTRAINT fk_channel_config_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS momentum_alert_deliveries (
+            user_id BIGINT UNSIGNED NOT NULL,
+            symbol VARCHAR(64) NOT NULL,
+            last_sent_at DATETIME NOT NULL,
+            PRIMARY KEY (user_id, symbol),
+            CONSTRAINT fk_momentum_alert_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """,
     ]
@@ -1466,9 +1485,21 @@ def set_watch_symbols(
                         """,
                         (user_id, *cleaned),
                     )
+                    cur.execute(
+                        f"""
+                        DELETE FROM signal_events
+                        WHERE user_id = %s
+                          AND symbol NOT IN ({placeholders})
+                        """,
+                        (user_id, *cleaned),
+                    )
                 else:
                     cur.execute(
                         "DELETE FROM signal_snapshots WHERE user_id = %s",
+                        (user_id,),
+                    )
+                    cur.execute(
+                        "DELETE FROM signal_events WHERE user_id = %s",
                         (user_id,),
                     )
             conn.commit()
@@ -1925,6 +1956,35 @@ def save_product_feedback(user_id: int, category: str, message: str) -> int:
             return int(cur.lastrowid)
 
 
+def get_site_setting(key: str) -> dict[str, Any] | None:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT value_json FROM site_settings WHERE setting_key = %s", (key[:64],))
+            row = cur.fetchone()
+    if not row:
+        return None
+    value = row.get("value_json")
+    if isinstance(value, str):
+        value = json.loads(value)
+    return value if isinstance(value, dict) else None
+
+
+def save_site_setting(key: str, value: dict[str, Any], user_id: int) -> None:
+    now = utc_now()
+    raw = json.dumps(value, ensure_ascii=False)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO site_settings(setting_key, value_json, updated_by, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE value_json = VALUES(value_json),
+                    updated_by = VALUES(updated_by), updated_at = VALUES(updated_at)
+                """,
+                (key[:64], raw, user_id, now, now),
+            )
+
+
 def save_notification_channel_config(
     user_id: int, channel: str, config_encrypted: bytes, masked_label: str
 ) -> None:
@@ -1962,6 +2022,63 @@ def get_notification_channel_configs(user_id: int) -> dict[str, dict[str, Any]]:
         }
         for row in rows
     }
+
+
+def list_notification_channel_configs_by_channel(channel: str) -> list[dict[str, Any]]:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT user_id, config_encrypted, masked_label, updated_at
+                   FROM notification_channel_configs WHERE channel = %s ORDER BY user_id""",
+                (channel,),
+            )
+            rows = cur.fetchall()
+    return [{
+        "user_id": int(row["user_id"]),
+        "encrypted": row["config_encrypted"],
+        "masked_label": row["masked_label"],
+        "updated_at": _iso(row.get("updated_at")),
+    } for row in rows]
+
+
+def claim_momentum_alert(user_id: int, symbol: str, cooldown_seconds: int) -> bool:
+    """Atomically reserve an alert delivery across processes and restarts."""
+    now = utc_now()
+    cutoff = now - timedelta(seconds=max(0, cooldown_seconds))
+    with get_conn() as conn:
+        conn.begin()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT last_sent_at FROM momentum_alert_deliveries
+                       WHERE user_id = %s AND symbol = %s FOR UPDATE""",
+                    (user_id, symbol[:64]),
+                )
+                row = cur.fetchone()
+                if row and row["last_sent_at"] > cutoff:
+                    conn.rollback()
+                    return False
+                cur.execute(
+                    """INSERT INTO momentum_alert_deliveries(user_id, symbol, last_sent_at)
+                       VALUES (%s, %s, %s)
+                       ON DUPLICATE KEY UPDATE last_sent_at = VALUES(last_sent_at)""",
+                    (user_id, symbol[:64], now),
+                )
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def release_momentum_alert_claim(user_id: int, symbol: str) -> None:
+    """Release a reservation after delivery failed so the next scan can retry."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM momentum_alert_deliveries WHERE user_id = %s AND symbol = %s",
+                (user_id, symbol[:64]),
+            )
 
 
 def delete_notification_channel_config(user_id: int, channel: str) -> bool:

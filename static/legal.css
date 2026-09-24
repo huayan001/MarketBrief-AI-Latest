@@ -1,0 +1,9 @@
+body { margin: 0; background: #f6f7f9; color: #172026; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+.legal { width: min(820px, calc(100% - 32px)); margin: 40px auto; padding: 34px; background: #fff; border: 1px solid #dce2e8; border-radius: 14px; }
+.legal h1 { margin-top: 0; }
+.legal h2 { margin-top: 30px; font-size: 19px; }
+.legal p, .legal li { color: #4d5a64; line-height: 1.7; }
+.legal nav { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 28px; }
+.legal a { color: #115e59; }
+.legal .notice { padding: 14px 16px; background: #f5fbfa; border-left: 3px solid #0f766e; }
+@media (max-width: 600px) { .legal { margin: 16px auto; padding: 22px; } }

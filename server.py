@@ -24,6 +24,10 @@ import brief_scheduler
 import db
 import entitlements
 import market_cache
+import momentum_alerts
+import momentum_scanner
+import robinhood_radar
+import trade_review
 import notifications
 import security
 import secret_store
@@ -37,11 +41,104 @@ PUBLIC_API_PATHS = {
     ("GET", "/api/health"),
     ("GET", "/api/auth/me"),
     ("GET", "/api/ai-status"),
+    ("GET", "/api/site-footer"),
     ("POST", "/api/auth/send-code"),
     ("POST", "/api/auth/login"),
     ("POST", "/api/auth/logout"),
 }
 BRIEF_CHANNELS = set(notifications.SUPPORTED_CHANNELS)
+
+
+def mask_email(email: str) -> str:
+    """Return a demo-safe email label without exposing the full local part."""
+    value = str(email or "").strip()
+    if "@" not in value:
+        return "***"
+    local, domain = value.rsplit("@", 1)
+    visible = local[: min(3, max(1, len(local)))]
+    return f"{visible}***@{domain}" if domain else f"{visible}***"
+
+
+def public_user(user: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value for key, value in user.items() if key != "email"
+    } | {
+        "email": mask_email(str(user.get("email") or "")),
+        "is_admin": is_site_admin(user),
+    }
+
+
+def is_site_admin(user: dict[str, Any] | None) -> bool:
+    email = str((user or {}).get("email") or "").strip().lower()
+    admin_source = os.environ.get("SITE_ADMIN_EMAILS", "").strip()
+    if not admin_source:
+        admin_source = os.environ.get("SMTP_USER", "").strip()
+    configured = {
+        item.strip().lower()
+        for item in admin_source.split(",")
+        if item.strip()
+    }
+    return bool(email and email in configured)
+
+
+DEFAULT_SITE_FOOTER = {
+    "description_zh": "股票市场信息、图表、公司研究与 AI 辅助摘要工具。仅供一般信息与自主研究。",
+    "description_en": "Stock market information, charts, company research, and AI-assisted summaries for independent research.",
+    "contact_email": "",
+    "columns": [
+        {"title": "研究", "links": [{"label": "美股", "url": "/us-stocks/"}, {"label": "公开报告", "url": "/reports/"}, {"label": "学习中心", "url": "/learn/"}]},
+        {"title": "公司", "links": [{"label": "价格", "url": "/pricing/"}, {"label": "关于", "url": "/about/"}, {"label": "研究方法", "url": "/methodology/"}]},
+        {"title": "法律", "links": [{"label": "隐私政策", "url": "/privacy.html"}, {"label": "服务条款", "url": "/terms.html"}, {"label": "退款与取消", "url": "/refund.html"}]},
+    ],
+    "socials": [],
+}
+
+
+def site_footer_payload() -> dict[str, Any]:
+    return db.get_site_setting("footer") or DEFAULT_SITE_FOOTER
+
+
+def normalize_site_footer(payload: dict[str, Any]) -> dict[str, Any]:
+    def clean_text(value: Any, limit: int) -> str:
+        return str(value or "").strip()[:limit]
+
+    def clean_url(value: Any) -> str:
+        url = clean_text(value, 500)
+        parsed = urllib.parse.urlparse(url)
+        if url.startswith("/") or parsed.scheme in {"http", "https", "mailto"}:
+            return url
+        raise ValueError("链接必须是站内路径或 http/https/mailto 地址")
+
+    columns = []
+    for column in (payload.get("columns") or [])[:6]:
+        if not isinstance(column, dict):
+            continue
+        links = []
+        for link in (column.get("links") or [])[:12]:
+            if not isinstance(link, dict):
+                continue
+            label = clean_text(link.get("label"), 80)
+            url = clean_url(link.get("url"))
+            if label and url:
+                links.append({"label": label, "url": url})
+        title = clean_text(column.get("title"), 80)
+        if title:
+            columns.append({"title": title, "links": links})
+    socials = []
+    for link in (payload.get("socials") or [])[:12]:
+        if not isinstance(link, dict):
+            continue
+        label = clean_text(link.get("label"), 80)
+        url = clean_url(link.get("url"))
+        if label and url:
+            socials.append({"label": label, "url": url})
+    return {
+        "description_zh": clean_text(payload.get("description_zh"), 500),
+        "description_en": clean_text(payload.get("description_en"), 500),
+        "contact_email": clean_text(payload.get("contact_email"), 255),
+        "columns": columns,
+        "socials": socials,
+    }
 
 
 def user_channel_configs(user_id: int) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
@@ -1432,7 +1529,7 @@ class Handler(BaseHTTPRequestHandler):
                     json_response(
                         self,
                         {
-                            "user": user,
+                            "user": public_user(user),
                             "entitlement": entitlements.entitlement_snapshot(int(user["id"])),
                         },
                     )
@@ -1456,6 +1553,9 @@ class Handler(BaseHTTPRequestHandler):
                         },
                         status=200 if database_ok else 503,
                     )
+                    return
+                if path == "/api/site-footer":
+                    json_response(self, {"footer": site_footer_payload(), "is_admin": is_site_admin(user)})
                     return
                 if path == "/api/payments/status":
                     query = urllib.parse.parse_qs(parsed.query)
@@ -1503,6 +1603,49 @@ class Handler(BaseHTTPRequestHandler):
                 if path == "/api/ai-status":
                     json_response(self, public_ai_config())
                     return
+                if path == "/api/us-momentum/schedule":
+                    json_response(self, momentum_alerts.schedule_status())
+                    return
+                if path == "/api/robinhood-radar/market":
+                    query = urllib.parse.parse_qs(parsed.query)
+                    try:
+                        result = robinhood_radar.market_data((query.get("asset") or [""])[0], (query.get("pool") or [""])[0])
+                    except ValueError as exc:
+                        json_response(self, {"error": str(exc)}, status=400)
+                        return
+                    json_response(self, result)
+                    return
+                if path == "/api/robinhood-radar":
+                    query = urllib.parse.parse_qs(parsed.query)
+                    force = str((query.get("refresh") or [""])[0]).lower() in {"1", "true", "yes"}
+                    try:
+                        result = robinhood_radar.scan(force=force)
+                    except robinhood_radar.RobinhoodRadarError as exc:
+                        json_response(
+                            self,
+                            {"error": str(exc), "code": "robinhood_radar_unavailable"},
+                            status=503,
+                        )
+                        return
+                    json_response(self, result)
+                    return
+                if path == "/api/trade-review":
+                    entitlements.require_pro(int(user["id"]), "us_momentum")
+                    try:
+                        executions = trade_review.load_longbridge_executions(days=7)
+                        round_trips = trade_review.round_trips_from_executions(executions)
+                        result = trade_review.build_trade_review(round_trips)
+                        result["execution_count"] = len(executions)
+                        result["provider"] = "Longbridge OpenAPI · read only"
+                    except Exception as exc:
+                        json_response(
+                            self,
+                            {"error": f"读取 Longbridge 成交记录失败：{str(exc) or type(exc).__name__}", "code": "trade_review_failed"},
+                            status=503,
+                        )
+                        return
+                    json_response(self, result)
+                    return
                 if path == "/api/watchlist":
                     uid = int(user["id"])
                     watch_limit = entitlements.limit_for(uid, "watchlist_symbols")
@@ -1549,13 +1692,18 @@ class Handler(BaseHTTPRequestHandler):
                         for symbol, value in db.get_signal_snapshots(uid).items()
                         if symbol in allowed_symbols
                     }
+                    events = [
+                        event
+                        for event in db.list_signal_events(
+                            uid,
+                            history_days=history_days,
+                        )
+                        if str(event.get("symbol") or "").upper() in allowed_symbols
+                    ]
                     json_response(
                         self,
                         {
-                            "events": db.list_signal_events(
-                                uid,
-                                history_days=history_days,
-                            ),
+                            "events": events,
                             "snapshots": snapshots,
                             "history_days": history_days,
                         },
@@ -1633,7 +1781,7 @@ class Handler(BaseHTTPRequestHandler):
                 json_response(
                     self,
                     {
-                        "user": user,
+                        "user": public_user(user),
                         "entitlement": entitlements.entitlement_snapshot(int(user["id"])),
                     },
                     headers={"Set-Cookie": auth.session_cookie_header(token)},
@@ -2062,6 +2210,18 @@ class Handler(BaseHTTPRequestHandler):
                 feedback_id = db.save_product_feedback(user_id, category, message)
                 json_response(self, {"ok": True, "id": feedback_id}, status=201)
                 return
+            if path == "/api/admin/site-footer":
+                if not is_site_admin(user):
+                    json_response(self, {"error": "仅站点管理员可编辑页脚"}, status=403)
+                    return
+                try:
+                    footer = normalize_site_footer(payload)
+                except ValueError as exc:
+                    json_response(self, {"error": str(exc)}, status=400)
+                    return
+                db.save_site_setting("footer", footer, user_id)
+                json_response(self, {"ok": True, "footer": footer})
+                return
             if path == "/api/scan":
                 symbols = payload.get("symbols") or []
                 if not isinstance(symbols, list):
@@ -2124,6 +2284,15 @@ class Handler(BaseHTTPRequestHandler):
                         "usage": usage,
                     },
                 )
+                return
+            if path == "/api/us-momentum/scan":
+                entitlements.require_pro(user_id, "us_momentum")
+                try:
+                    result = momentum_scanner.scan_us_momentum(limit=20)
+                except momentum_scanner.MomentumScannerError as exc:
+                    json_response(self, {"error": str(exc), "code": "momentum_scan_failed"}, status=503)
+                    return
+                json_response(self, result)
                 return
             if path == "/api/signal-events":
                 events = payload.get("events") or []
@@ -2336,8 +2505,10 @@ def main() -> None:
     waffo_bridge.start_sidecar()
     scheduler_mode = os.environ.get("BRIEF_SCHEDULER_MODE", "embedded").strip().lower()
     scheduler = brief_scheduler.BriefScheduler(run_daily_brief)
+    momentum_scheduler = momentum_alerts.MomentumAlertScheduler()
     if scheduler_mode == "embedded":
         scheduler.start()
+        momentum_scheduler.start()
     preferred_port = DEFAULT_PORT
     if len(sys.argv) > 1:
         preferred_port = int(sys.argv[1])
@@ -2351,6 +2522,7 @@ def main() -> None:
         print("\nStopped.")
     finally:
         if scheduler_mode == "embedded":
+            momentum_scheduler.stop()
             scheduler.stop()
         if server:
             server.server_close()

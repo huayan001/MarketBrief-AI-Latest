@@ -77,7 +77,7 @@ class PaymentRouteTests(unittest.TestCase):
                 headers={"Content-Type": "application/json", "Origin": "null"},
             )
         self.assertEqual(status, 200)
-        self.assertEqual(payload["user"]["email"], "local@example.com")
+        self.assertEqual(payload["user"]["email"], "loc***@example.com")
 
     def test_checkout_binds_logged_in_user_to_internal_order(self):
         checkout = {
@@ -642,13 +642,22 @@ class EntitlementRouteTests(unittest.TestCase):
                     "MSFT": {"overall": "neutral"},
                 },
             ),
-            mock.patch.object(app_server.db, "list_signal_events", return_value=[]),
+            mock.patch.object(
+                app_server.db,
+                "list_signal_events",
+                return_value=[
+                    {"id": 1, "symbol": "AAPL", "current_label": "买入观察"},
+                    {"id": 2, "symbol": "MSFT", "current_label": "持有观察"},
+                    {"id": 3, "symbol": "SKK", "current_label": "卖出/回避"},
+                ],
+            ),
             running_server() as base_url,
         ):
             status, payload = request_json(f"{base_url}/api/signal-events")
 
         self.assertEqual(status, 200)
         self.assertEqual(set(payload["snapshots"]), {"AAPL"})
+        self.assertEqual([event["symbol"] for event in payload["events"]], ["AAPL"])
 
 
 class PaymentPersistenceTests(unittest.TestCase):
@@ -1030,6 +1039,7 @@ class MySQLSubscriptionLifecycleTests(unittest.TestCase):
         second = ["NVDA", "TSLA", "AMD", "INTC", "ORCL"]
         db.set_watch_symbols(self.user_id, first, max_symbols=5)
         db.upsert_signal_snapshot(self.user_id, "AAPL", {"overall": "bullish"})
+        db.add_signal_event(self.user_id, "AAPL", {"current_label": "买入观察"})
         barrier = threading.Barrier(2)
 
         def replace(symbols):
@@ -1043,6 +1053,9 @@ class MySQLSubscriptionLifecycleTests(unittest.TestCase):
         self.assertEqual(len(saved), 5)
         self.assertIn(set(saved), (set(first), set(second)))
         self.assertTrue(set(db.get_signal_snapshots(self.user_id)).issubset(set(saved)))
+        self.assertTrue(
+            {event["symbol"] for event in db.list_signal_events(self.user_id)}.issubset(set(saved))
+        )
 
     def test_usage_counter_is_atomic_under_concurrency(self):
         workers = 16

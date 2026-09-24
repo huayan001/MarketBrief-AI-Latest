@@ -53,6 +53,11 @@ def _env_flag(name: str, default: str = "1") -> bool:
     return os.environ.get(name, default).strip() not in {"0", "false", "False", "no", ""}
 
 
+def normalize_smtp_password(value: str) -> str:
+    """Remove visual grouping whitespace from copied SMTP app passwords."""
+    return "".join(str(value or "").split())
+
+
 def send_login_email(email: str, code: str) -> None:
     host = os.environ.get("SMTP_HOST", "").strip()
     if not host:
@@ -61,7 +66,7 @@ def send_login_email(email: str, code: str) -> None:
 
     port = int(os.environ.get("SMTP_PORT", "587") or "587")
     user = os.environ.get("SMTP_USER", "").strip()
-    password = os.environ.get("SMTP_PASSWORD", "")
+    password = normalize_smtp_password(os.environ.get("SMTP_PASSWORD", ""))
     from_addr = os.environ.get("SMTP_FROM", "").strip() or user or "noreply@localhost"
     # 465 默认走 SMTPS；587 默认 STARTTLS
     use_ssl = _env_flag("SMTP_USE_SSL", "1" if port == 465 else "0")

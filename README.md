@@ -217,6 +217,8 @@ webhook delivery 记录中确认 HTTP 200。
 
 ## 数据和存储
 
+强势股 Telegram 后台提醒可通过 `MOMENTUM_TELEGRAM_ENABLED=true` 开启；自动扫描仅在美东工作日开盘窗口执行，默认时间为 09:25、09:35、09:45（`MOMENTUM_SCAN_INTERVAL_SECONDS=600`），09:50 结束。同一股票 14400 秒内不重复推送。去重记录保存在数据库中，即使服务重启或意外启动多个实例也不会重复发送。Telegram 凭据在应用的通知设置中保存，仅向具备 Pro 权限且已配置 Telegram 的用户发送；页面上的手动扫描不受时间窗口限制。
+
 - 行情数据来自 Yahoo Finance chart API
 - 用户、报告、关注列表、信号记录、订阅和用量计数保存在 MySQL
 - 登录方式为邮箱验证码（无密码）

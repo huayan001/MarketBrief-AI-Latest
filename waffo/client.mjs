@@ -16,6 +16,9 @@ export const PRO_MONTHLY_PRODUCT = Object.freeze({
   billingPeriod: "monthly",
 });
 
+const PRO_MONTHLY_DESCRIPTION =
+  "Subscription stock market information and research software with charts, watchlists, news summaries, and analytical reports. No brokerage, trade execution, custody, or personalized investment advice.";
+
 let sharedClient = null;
 let catalogPromise = null;
 
@@ -100,7 +103,7 @@ async function discoverOrCreateCatalog(client) {
     const created = await client.subscriptionProducts.create({
       storeId: store.id,
       name: PRO_MONTHLY_PRODUCT.name,
-      description: "Continuous market monitoring and AI research for MarketBrief AI",
+      description: PRO_MONTHLY_DESCRIPTION,
       billingPeriod: PRO_MONTHLY_PRODUCT.billingPeriod,
       prices: {
         USD: {
@@ -118,7 +121,7 @@ async function discoverOrCreateCatalog(client) {
     const updated = await client.subscriptionProducts.update({
       id: product.id,
       name: PRO_MONTHLY_PRODUCT.name,
-      description: "Continuous market monitoring and AI research for MarketBrief AI",
+      description: PRO_MONTHLY_DESCRIPTION,
       billingPeriod: PRO_MONTHLY_PRODUCT.billingPeriod,
       prices: {
         USD: {

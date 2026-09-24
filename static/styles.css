@@ -275,11 +275,13 @@ select {
 }
 
 #historyList {
-  max-height: min(34vh, 380px);
+  /* Keep two normal collapsed report cards visible before scrolling. */
+  max-height: min(68vh, 760px);
 }
 
 #watchList {
-  max-height: min(24vh, 240px);
+  /* Eight watch rows fit without scrolling at the default sidebar density. */
+  max-height: min(52vh, 440px);
   padding-bottom: 4px;
 }
 
@@ -748,6 +750,482 @@ select {
   gap: 9px;
 }
 
+.momentumPanel {
+  overflow: hidden;
+  border: 1px solid #cfdedb;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f3f8f7 0%, #ffffff 55%);
+  box-shadow: var(--shadow);
+}
+
+.robinhoodRadar {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+
+.robinhoodRadarHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px 20px 16px;
+}
+
+.robinhoodRadarHead h3 {
+  margin: 5px 0 5px;
+  color: var(--ink);
+  font-size: 21px;
+}
+
+.robinhoodRadarHead p {
+  max-width: 680px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.robinhoodRadarEyebrow {
+  color: var(--accent-dark);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+}
+
+.robinhoodRadarActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.robinhoodRadarActions select {
+  border-color: var(--line);
+  background: #fff;
+  color: var(--ink);
+}
+
+.robinhoodRadarActions button {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 800;
+}
+
+.robinhoodRadarActions button:hover { background: var(--accent-dark); }
+
+.robinhoodRadarMeta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 9px 20px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.robinhoodConnection {
+  border-radius: 999px;
+  background: #edf1f4;
+  color: var(--muted);
+  padding: 4px 9px;
+  font-weight: 800;
+}
+
+.robinhoodConnection.online { background: #dff2ee; color: var(--accent-dark); }
+.robinhoodConnection.error { background: #fff0f0; color: var(--red); }
+
+.robinhoodRadarBody { padding: 16px 20px 18px; }
+
+.robinhoodRadarMetrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.robinhoodRadarMetrics article {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #f8fafb;
+  padding: 13px 14px;
+}
+
+.robinhoodRadarMetrics span,
+.robinhoodRadarMetrics small { color: var(--muted); font-size: 11px; }
+.robinhoodRadarMetrics strong { color: var(--ink); font-size: 20px; }
+
+.robinhoodRadarGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.8fr);
+  gap: 12px;
+}
+
+.robinhoodPoolPanel,
+.robinhoodDetailPanel {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.robinhoodSectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding: 12px 14px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.robinhoodSectionHead div { display: grid; gap: 2px; }
+.robinhoodSectionHead strong { color: var(--ink); font-size: 14px; }
+.robinhoodPoolTable { max-height: 470px; overflow: auto; }
+
+.robinhoodTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.robinhoodTable th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f7f9fa;
+  color: var(--muted);
+  padding: 10px 12px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.robinhoodTable td {
+  border-top: 1px solid var(--line);
+  padding: 11px 12px;
+  color: #334047;
+  vertical-align: middle;
+}
+
+.robinhoodTable tbody tr { cursor: pointer; transition: background 0.15s ease; }
+.robinhoodTable tbody tr:hover,
+.robinhoodTable tbody tr.selected { background: #eef7f5; }
+.robinhoodTokenName { display: grid; gap: 2px; }
+.robinhoodTokenName strong { color: var(--ink); font-size: 13px; }
+.robinhoodTokenName span { max-width: 150px; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+
+.robinhoodRiskBadge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.robinhoodRiskBadge.review { background: #dff2ee; color: var(--accent-dark); }
+.robinhoodRiskBadge.high { background: #fff0f0; color: var(--red); }
+.robinhoodRiskBadge.snapshot { background: #edf1f4; color: var(--muted); }
+.robinhoodScore { color: var(--accent-dark); font-size: 15px; }
+
+.robinhoodDetailPanel { padding: 15px; }
+.robinhoodCaseLabel { color: var(--accent-dark); font-size: 10px; font-weight: 800; letter-spacing: 0.12em; }
+.robinhoodCaseTitle { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 9px 0 12px; }
+.robinhoodCaseTitle div { display: grid; }
+.robinhoodCaseTitle strong { color: var(--ink); font-size: 20px; }
+.robinhoodCaseTitle span { color: var(--muted); font-size: 11px; }
+
+.robinhoodCaseMetrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.robinhoodCaseMetrics div {
+  display: grid;
+  gap: 3px;
+  border-radius: 7px;
+  background: #f5f7f8;
+  padding: 9px 10px;
+}
+
+.robinhoodCaseMetrics span { color: var(--muted); font-size: 10px; }
+.robinhoodCaseMetrics strong { color: var(--ink); font-size: 14px; }
+.robinhoodCaseNote { margin: 10px 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+
+.robinhoodContract {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 10px 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.robinhoodContract code { color: var(--ink); }
+.robinhoodContract a { margin-left: auto; color: var(--accent-dark); text-decoration: none; }
+.robinhoodPoolDetail { display: grid; gap: 7px; padding-top: 12px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.robinhoodPoolDetail strong { color: var(--ink); font-size: 13px; }
+.robinhoodDetailLinks { display: flex; flex-wrap: wrap; gap: 7px; }
+.robinhoodDetailLinks a { color: var(--accent-dark); text-decoration: none; }
+.robinhoodFlagList { display: flex; flex-wrap: wrap; gap: 5px; }
+.robinhoodFlagList span { border-radius: 999px; background: #edf1f4; color: #44525a; padding: 4px 7px; }
+
+.robinhoodRadarEmpty { display: grid; gap: 5px; padding: 28px 16px; color: var(--muted); font-size: 12px; text-align: center; }
+.robinhoodRadarEmpty strong { color: var(--ink); font-size: 14px; }
+.robinhoodRadarEmpty.error { color: var(--red); }
+
+.robinhoodMethodNote {
+  display: flex;
+  gap: 7px;
+  margin-top: 12px;
+  border-radius: 8px;
+  background: #fff8e8;
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.robinhoodMethodNote strong { color: #a56800; white-space: nowrap; }
+
+/* Compact radar: preserve readable type and scroll the pool list independently. */
+.robinhoodRadarHead { padding: 12px 16px 10px; }
+.robinhoodRadarMeta { padding: 6px 16px; }
+.robinhoodRadarBody { padding: 10px 16px 12px; }
+.robinhoodRadarMetrics { margin-bottom: 10px; }
+.robinhoodRadarMetrics article { padding: 8px 12px; gap: 2px; }
+.robinhoodSectionHead { padding: 8px 12px; }
+.robinhoodPoolTable { height: 276px; max-height: 276px; }
+.robinhoodTable th { padding: 7px 10px; }
+.robinhoodTable td { padding: 7px 10px; }
+.robinhoodDetailPanel { padding: 10px 12px; max-height: 326px; overflow: auto; }
+.robinhoodCaseTitle { margin: 5px 0 8px; }
+.robinhoodCaseTitle strong { font-size: 18px; }
+.robinhoodCaseMetrics { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.robinhoodCaseMetrics div { padding: 7px 8px; min-width: 0; }
+.robinhoodCaseMetrics strong { overflow-wrap: anywhere; }
+.robinhoodCaseMetrics strong.negative { color: var(--red); }
+.robinhoodCaseMetrics strong.positive { color: var(--accent-dark); }
+.robinhoodCaseNote { margin: 6px 0; }
+.robinhoodPoolDetail { border-top: 1px solid var(--line); padding-top: 8px; gap: 5px; overflow-wrap: anywhere; }
+.robinhoodMethodNote { margin-top: 8px; padding: 7px 10px; }
+
+@media (max-width: 1050px) {
+  .robinhoodRadarGrid { grid-template-columns: 1fr; }
+  .robinhoodRadarMetrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 700px) {
+  .robinhoodRadarHead { display: grid; }
+  .robinhoodRadarActions { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+  .robinhoodRadarMetrics { grid-template-columns: 1fr 1fr; }
+  .robinhoodRadarBody { padding: 12px; }
+  .robinhoodTable { min-width: 620px; }
+  .robinhoodCaseMetrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .robinhoodRadarMeta { align-items: flex-start; flex-direction: column; }
+  .robinhoodMethodNote { display: grid; }
+}
+
+.tradeReviewPanel {
+  overflow: hidden;
+  border: 1px solid #d8e0e5;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.tradeReviewBody {
+  padding-bottom: 6px;
+}
+
+.tradeReviewMetrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  gap: 1px;
+  margin: 16px 18px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--line);
+}
+
+.tradeReviewMetrics article {
+  display: grid;
+  gap: 5px;
+  background: #fff;
+  padding: 13px;
+}
+
+.tradeReviewMetrics span { color: var(--muted); font-size: 11px; }
+.tradeReviewMetrics strong { font-size: 18px; }
+.tradeIssueSummary { display: flex; flex-wrap: wrap; gap: 7px; padding: 0 18px 8px; }
+.tradeIssueSummary span, .reviewIssue { display: inline-block; margin: 2px 4px 2px 0; border-radius: 999px; background: #fff1df; color: #9a5800; padding: 4px 8px; font-size: 11px; }
+.tradeReviewTable { min-width: 760px; }
+
+@media (max-width: 900px) {
+  .tradeReviewMetrics { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+}
+
+.momentumHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 18px 18px 14px;
+}
+
+.momentumHead h3 {
+  margin: 4px 0 5px;
+  font-size: 20px;
+}
+
+.momentumHead p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.momentumActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.momentumEyebrow {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.momentumMeta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid #e3ecea;
+  border-bottom: 1px solid #e3ecea;
+  padding: 9px 18px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.momentumSource {
+  border-radius: 999px;
+  background: #dff2ee;
+  color: var(--accent-dark);
+  padding: 4px 9px;
+  font-weight: 700;
+}
+
+.momentumStatus {
+  display: grid;
+  gap: 4px;
+  padding: 18px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.momentumStatus strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.momentumStatus.error {
+  background: #fff5f5;
+  color: var(--red);
+}
+
+.momentumResults {
+  padding: 0 18px 18px;
+  overflow-x: auto;
+}
+
+.momentumTable {
+  width: 100%;
+  min-width: 840px;
+  border-collapse: separate;
+  border-spacing: 0 7px;
+  font-size: 13px;
+}
+
+.momentumTable th {
+  padding: 0 10px 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.momentumTable td {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+  padding: 11px 10px;
+  vertical-align: middle;
+}
+
+.momentumTable td:first-child {
+  border-left: 1px solid var(--line);
+  border-radius: 8px 0 0 8px;
+}
+
+.momentumTable td:last-child {
+  border-right: 1px solid var(--line);
+  border-radius: 0 8px 8px 0;
+}
+
+.momentumTable tr.isAlert td {
+  border-color: rgba(21, 128, 61, 0.35);
+  background: #f0fdf4;
+}
+
+.momentumTicker {
+  display: grid;
+  gap: 2px;
+}
+
+.momentumTicker strong {
+  font-size: 14px;
+}
+
+.momentumTicker span {
+  max-width: 190px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.momentumBadge {
+  display: inline-block;
+  border-radius: 999px;
+  background: #edf1f4;
+  color: var(--muted);
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.momentumBadge.alert {
+  background: #dff6e7;
+  color: var(--green);
+}
+
+.momentumScore {
+  color: var(--accent-dark);
+  font-size: 16px;
+}
+
 .compactHead {
   padding-top: 2px;
 }
@@ -815,7 +1293,17 @@ select {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(330px, 0.8fr);
   gap: 14px;
-  align-items: start;
+  align-items: stretch;
+}
+
+.workspace > .chartPanel {
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace > .chartPanel .chart {
+  flex: 1 1 300px;
+  min-height: 300px;
 }
 
 .workspace > .sidePanel {
@@ -859,6 +1347,18 @@ select {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 10px;
+}
+
+.chartTooltipDate {
+  margin-bottom: 6px;
+  font-weight: 800;
+}
+
+.chartTooltipOhlc {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(72px, 1fr));
+  gap: 3px 12px;
+  margin: 5px 0 2px 16px;
 }
 
 .chartLegendPill {
@@ -1196,11 +1696,44 @@ select {
     display: grid;
   }
 
-  #historyList,
-  #watchList,
   .workspace > .sidePanel {
     max-height: none;
     overflow: visible;
+  }
+
+  .workspace > .chartPanel .chart {
+    flex: none;
+  }
+
+  #historyList {
+    max-height: 760px;
+  }
+
+  #watchList {
+    max-height: 440px;
+  }
+}
+
+@media (max-width: 700px) {
+  .momentumHead {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .momentumActions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .momentumHead button {
+    width: 100%;
+  }
+
+  .momentumMeta {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 
@@ -1303,10 +1836,197 @@ body.loginOnly {
   min-height: 100vh;
   display: grid;
   place-items: center;
-  padding: 28px 16px;
+  padding: 52px 24px 28px;
   background:
     radial-gradient(circle at top left, rgba(15, 118, 110, 0.12), transparent 40%),
     linear-gradient(180deg, #eef3f3 0%, var(--bg) 55%);
+}
+
+.publicLanding {
+  width: min(1120px, 100%);
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(340px, 0.65fr);
+  gap: 32px;
+  align-items: center;
+}
+
+.publicIntro {
+  display: grid;
+  gap: 20px;
+}
+
+.publicEyebrow {
+  margin: 0;
+  color: var(--accent-dark);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.publicIntro h1 {
+  max-width: 760px;
+  margin: 0;
+  font-size: clamp(34px, 5vw, 58px);
+  line-height: 1.08;
+  letter-spacing: -0.04em;
+}
+
+.publicLead {
+  max-width: 700px;
+  margin: 0;
+  color: #4d5a64;
+  font-size: 18px;
+  line-height: 1.75;
+}
+
+.publicFeatureGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.publicFeatureGrid article,
+.publicCompliance,
+.publicPriceCard {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.78);
+  padding: 16px;
+}
+
+.publicFeatureGrid article {
+  display: grid;
+  gap: 7px;
+}
+
+.publicFeatureGrid span,
+.publicCompliance p,
+.publicPriceCard p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.publicCompliance p,
+.publicPriceCard p {
+  margin: 6px 0 0;
+}
+
+.publicPriceCard {
+  display: grid;
+  gap: 10px;
+  background: #f5fbfa;
+}
+
+.publicPriceCard > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.publicFooter {
+  grid-column: 1 / -1;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.dynamicSiteFooter {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) repeat(3, minmax(120px, 0.7fr));
+  gap: 26px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.footerBrand,
+.footerColumn {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+}
+
+.footerBrand strong,
+.footerColumn strong {
+  color: var(--ink);
+}
+
+.footerBrand p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.footerColumn a,
+.footerSocials a,
+.footerContact a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.footerColumn a:hover,
+.footerSocials a:hover,
+.footerContact a:hover {
+  color: var(--accent-dark);
+  text-decoration: underline;
+}
+
+.footerSocials {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.footerCopyright {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.appSiteFooter {
+  margin-top: 34px;
+  padding: 28px 0 8px;
+  border-top: 1px solid var(--line);
+}
+
+.publicFooter nav,
+.planPolicyLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.adminContentForm label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.adminContentForm textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 11px 12px;
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.5;
+}
+
+.adminFieldGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.publicFooter a,
+.planPolicyLinks a {
+  color: var(--accent-dark);
+}
+
+.planPolicyLinks {
+  justify-content: flex-end;
+  margin: 0;
+  font-size: 12px;
 }
 
 .loginCard {
@@ -1338,6 +2058,10 @@ body.loginOnly {
   color: var(--muted);
   font-size: 14px;
   line-height: 1.5;
+}
+
+.loginBrand h2 {
+  margin: 0;
 }
 
 .loginForm {
@@ -1691,6 +2415,26 @@ body.loginOnly {
 }
 
 @media (max-width: 720px) {
+  .loginGate {
+    padding-top: 76px;
+  }
+
+  .publicLanding,
+  .publicFeatureGrid,
+  .dynamicSiteFooter,
+  .adminFieldGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .publicIntro h1 {
+    font-size: 36px;
+  }
+
+  .publicFooter {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .planDialogInner {
     padding: 18px;
   }
@@ -1719,4 +2463,5 @@ body.loginOnly {
     justify-content: flex-start;
     flex-wrap: wrap;
   }
+
 }

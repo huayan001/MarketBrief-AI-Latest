@@ -3,8 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MarketBrief_AI</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <title>MarketBrief AI — Stock Market Information & Research Software</title>
+    <meta
+      name="description"
+      content="Subscription software for stock market data, company research, watchlists, charts, news summaries, and analytical reports. No brokerage, trade execution, or personalized investment advice."
+    />
+    <link rel="stylesheet" href="/styles.css?v=20260921-remove-kronos" />
     <script>
       (function () {
         try {
@@ -23,12 +27,33 @@
         <button type="button" class="langBtn" data-locale-btn="zh-CN">中</button>
         <button type="button" class="langBtn" data-locale-btn="en">EN</button>
       </div>
-      <div class="loginCard">
-        <div class="loginBrand">
-          <img src="/images/marketbrief-ai-logo.png" alt="MarketBrief_AI" class="loginLogo" />
-          <p data-i18n="login.subtitle">邮箱验证码登录后使用工作台</p>
-        </div>
-        <form id="loginForm" class="loginForm">
+      <div class="publicLanding">
+        <section class="publicIntro">
+          <div class="loginBrand">
+            <img src="/images/marketbrief-ai-logo.png" alt="MarketBrief AI" class="loginLogo" />
+          </div>
+          <p class="publicEyebrow" data-i18n="public.category">股票市场信息与研究软件</p>
+          <h1 data-i18n="public.title">把公开市场数据整理成清晰、可复核的研究工作流</h1>
+          <p class="publicLead" data-i18n="public.description">
+            查询股票行情、财务与新闻资料，使用图表、技术指标、自选股和 AI 摘要提高研究效率。
+          </p>
+          <div class="publicFeatureGrid">
+            <article><strong data-i18n="public.featureDataTitle">市场数据与图表</strong><span data-i18n="public.featureDataBody">查看股票行情、历史 K 线和常用技术指标。</span></article>
+            <article><strong data-i18n="public.featureResearchTitle">公司研究工具</strong><span data-i18n="public.featureResearchBody">集中整理相关新闻、风险因素和研究笔记。</span></article>
+            <article><strong data-i18n="public.featureWatchTitle">自选股监测</strong><span data-i18n="public.featureWatchBody">跟踪关注标的的数据和指标变化。</span></article>
+          </div>
+          <div class="publicCompliance">
+            <strong data-i18n="public.boundaryTitle">服务边界</strong>
+            <p data-i18n="public.boundaryBody">MarketBrief AI 不提供券商服务，不执行交易，不保管客户资金，不提供个性化投资建议，也不保证投资回报。所有内容仅供一般信息与自主研究。</p>
+          </div>
+        </section>
+
+        <aside class="loginCard">
+          <div class="loginBrand">
+            <h2 data-i18n="login.accountTitle">登录研究工作台</h2>
+            <p data-i18n="login.subtitle">邮箱验证码登录后使用工作台</p>
+          </div>
+          <form id="loginForm" class="loginForm">
           <label for="loginEmail" data-i18n="login.email">邮箱</label>
           <input id="loginEmail" type="email" autocomplete="email" required placeholder="you@example.com" />
           <label for="loginCode" data-i18n="login.code">验证码</label>
@@ -46,7 +71,15 @@
           <button type="submit" id="loginSubmit" data-i18n="login.submit">登录</button>
           <p id="loginHint" class="loginHint" data-i18n="login.hint">未配置 SMTP 时，验证码会打印在服务端日志。</p>
           <p id="loginError" class="loginError" hidden></p>
-        </form>
+          </form>
+          <section class="publicPriceCard">
+            <div><strong>Free</strong><span data-i18n="public.freePrice">免费</span></div>
+            <div><strong>Pro</strong><span data-i18n="public.proPrice">US$19.99/月</span></div>
+            <p data-i18n="public.billing">Pro 按月自动续费，可随时在“管理订阅”中取消；取消后权益保留至当前计费周期结束。</p>
+          </section>
+        </aside>
+
+        <footer class="dynamicSiteFooter publicFooter" data-site-footer></footer>
       </div>
     </div>
 
@@ -56,7 +89,7 @@
           <div class="brandLogoFrame">
             <img src="/images/marketbrief-ai-logo.png" alt="MarketBrief_AI" class="brandLogo" />
           </div>
-          <p data-i18n="brand.tagline">多市场交易分析工作台</p>
+          <p data-i18n="brand.tagline">股票市场信息与研究工作台</p>
         </div>
 
         <form id="symbolForm" class="search">
@@ -67,7 +100,7 @@
               autocomplete="off"
               value="AAPL"
               data-i18n-placeholder="search.placeholder"
-              placeholder="AAPL / 002859 / 0700.HK / BTC-USD"
+              placeholder="AAPL / 002859 / 0700.HK"
             />
             <button type="submit" data-i18n="search.analyze">分析</button>
           </div>
@@ -131,6 +164,7 @@
                 自动简报
               </button>
               <button type="button" id="feedbackBtn" class="ghost compactButton" data-i18n="feedback.title">反馈</button>
+              <button type="button" id="siteAdminBtn" class="ghost compactButton" hidden>站点内容</button>
               <button
                 type="button"
                 id="checkoutBtn"
@@ -158,7 +192,7 @@
 
         <section class="metrics">
           <div class="metric signalMetric" id="signalMetric">
-            <span data-i18n="metric.signal">买卖信号</span>
+            <span data-i18n="metric.signal">指标倾向</span>
             <strong id="signalLabel">--</strong>
           </div>
           <div class="metric">
@@ -199,6 +233,109 @@
           <div id="scanSummary" class="scanSummary">关注股票后，一键扫描信号变化。</div>
           <div id="scanResults" class="scanResults"></div>
           <div id="signalChanges" class="signalChanges"></div>
+        </section>
+
+        <section class="momentumPanel" aria-labelledby="momentumTitle">
+          <div class="momentumHead">
+            <div>
+              <div class="momentumEyebrow" data-i18n="momentum.eyebrow">LONGBRIDGE · US MARKET</div>
+              <h3 id="momentumTitle" data-i18n="momentum.title">美股强势雷达</h3>
+              <p data-i18n="momentum.subtitle">从全市场寻找强势小盘股，并用 5 分钟 MACD 与量价条件排序。</p>
+            </div>
+            <div class="momentumActions">
+              <button id="toggleMomentumResults" type="button" class="ghost" hidden>收起</button>
+              <button id="runMomentumScan" type="button" data-i18n="momentum.run">手动扫描</button>
+            </div>
+          </div>
+          <div class="momentumMeta">
+            <span class="momentumSource" data-i18n="momentum.source">数据源 · Longbridge</span>
+            <span id="momentumScanMeta" data-i18n="momentum.scheduleLoading">正在读取开盘扫描时间</span>
+          </div>
+          <div id="momentumBody">
+            <div id="momentumStatus" class="momentumStatus">
+              <strong id="momentumReadyTitle" data-i18n="momentum.readyTitle">等待开盘扫描窗口</strong>
+              <span id="momentumReadyBody" data-i18n="momentum.readyBody">自动提醒仅在美东工作日开盘附近运行；手动扫描随时可用。</span>
+            </div>
+            <div id="momentumResults" class="momentumResults" hidden></div>
+          </div>
+        </section>
+
+        <section class="robinhoodRadar" aria-labelledby="robinhoodRadarTitle">
+          <div class="robinhoodRadarHead">
+            <div>
+              <div class="robinhoodRadarEyebrow">ROBINHOOD CHAIN · READ ONLY</div>
+              <h3 id="robinhoodRadarTitle">新币雷达</h3>
+              <p>监听 Uniswap 新池，先看流动性、报价资产和合约完整度，再决定是否值得继续研究。</p>
+            </div>
+            <div class="robinhoodRadarActions">
+              <select id="robinhoodRiskFilter" aria-label="按初筛结果过滤">
+                <option value="all">全部新池</option>
+                <option value="review">值得复核</option>
+                <option value="high">高风险项</option>
+              </select>
+              <button id="refreshRobinhoodRadar" type="button">刷新链上数据</button>
+            </div>
+          </div>
+
+          <div class="robinhoodRadarMeta">
+            <span id="robinhoodConnection" class="robinhoodConnection checking">等待连接</span>
+            <span id="robinhoodCheckedAt">无需 API Key · 不连接钱包</span>
+          </div>
+
+          <div id="robinhoodRadarBody" class="robinhoodRadarBody">
+            <div class="robinhoodRadarMetrics">
+              <article><span>最新区块</span><strong id="robinhoodHeadBlock">--</strong><small>Chain ID 4663</small></article>
+              <article><span>扫描到的新池</span><strong id="robinhoodPoolCount">--</strong><small>最近约 12,000 个区块</small></article>
+              <article><span>值得复核</span><strong id="robinhoodReviewCount">--</strong><small>仍需做权限审计</small></article>
+              <article><span>高风险项</span><strong id="robinhoodHighRiskCount">--</strong><small>薄流动性或异常报价</small></article>
+            </div>
+
+            <div class="robinhoodRadarGrid">
+              <div class="robinhoodPoolPanel">
+                <div class="robinhoodSectionHead">
+                  <div><strong>实时新池</strong><span id="robinhoodCoverage">公共 RPC · Uniswap V2/V3</span></div>
+                  <span id="robinhoodVisibleCount">0 个结果</span>
+                </div>
+                <div id="robinhoodPoolTable" class="robinhoodPoolTable">
+                  <div class="robinhoodRadarEmpty"><strong>尚未读取链上数据</strong><span>点击“刷新链上数据”开始只读扫描。</span></div>
+                </div>
+              </div>
+
+              <aside class="robinhoodDetailPanel">
+                <div id="robinhoodMarket" aria-live="polite"><div class="robinhoodRadarEmpty">选择左侧币种查看最新行情</div></div>
+                <div id="robinhoodPoolDetail" class="robinhoodPoolDetail">
+                  <strong>选择左侧新池查看详情</strong>
+                  <span>这里会显示池地址、创建交易、供应量和全部风险标记。</span>
+                </div>
+              </aside>
+            </div>
+
+            <div class="robinhoodMethodNote">
+              <strong>初筛分不是上涨概率。</strong>
+              <span id="robinhoodMethodText">第一版不检查 V4、发币平台内部曲线、部署者关联钱包或完整增发权限，也不会发送交易。</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="tradeReviewPanel" aria-labelledby="tradeReviewTitle">
+          <div class="momentumHead">
+            <div>
+              <div class="momentumEyebrow">LONGBRIDGE · READ ONLY</div>
+              <h3 id="tradeReviewTitle">交易复盘</h3>
+              <p>读取近 7 天成交，自动配对买卖，并识别选股、开盘确认、滑点和止损问题。</p>
+            </div>
+            <div class="momentumActions">
+              <button id="toggleTradeReview" aria-controls="tradeReviewBody" hidden type="button" class="ghost" aria-expanded="true">收起</button>
+              <button id="loadTradeReview" type="button">读取成交并复盘</button>
+            </div>
+          </div>
+          <div class="momentumMeta">
+            <span class="momentumSource">只读连接</span>
+            <span>不会买入、卖出、改单或撤单</span>
+          </div>
+          <div id="tradeReviewBody" class="tradeReviewBody">
+            <div class="momentumStatus"><strong>等待复盘</strong><span>点击按钮后读取当前 Longbridge OpenAPI 账户的成交记录。</span></div>
+          </div>
         </section>
 
         <section id="timeframeSignals" class="timeframeSignals">
@@ -271,6 +408,7 @@
             </div>
           </section>
         </section>
+        <footer class="dynamicSiteFooter appSiteFooter" data-site-footer></footer>
       </main>
     </div>
 
@@ -371,6 +509,11 @@
         <p class="testEnvironmentNote" data-i18n="plan.testEnvironment">
           当前仅连接 Waffo Test，不会产生真实扣款。
         </p>
+        <p class="planPolicyLinks">
+          <a href="/terms.html" target="_blank" data-i18n="public.terms">服务条款</a>
+          <a href="/privacy.html" target="_blank" data-i18n="public.privacy">隐私政策</a>
+          <a href="/refund.html" target="_blank" data-i18n="public.refund">退款与取消</a>
+        </p>
       </div>
     </dialog>
 
@@ -417,7 +560,8 @@
         <div class="planActionButtons">
           <button type="submit" id="saveBriefSettings" data-i18n="brief.save">保存设置</button>
           <button type="button" id="runBriefNow" class="ghost" data-i18n="brief.runNow">立即生成一次</button>
-          <button type="button" id="testBriefChannel" class="ghost" data-i18n="brief.testChannel">测试所选渠道</button>
+          <button type="button" id="testBriefChannel" class="ghost" data-i18n="brief.testChannel">测试当前配置渠道</button>
+          <button type="button" id="testBriefEmail" class="ghost" data-i18n="brief.testEmail">测试邮件</button>
         </div>
         <p id="briefStatus" class="paymentStatus" role="status"></p>
         <section>
@@ -444,9 +588,32 @@
       </form>
     </dialog>
 
+    <dialog id="siteAdminDialog" class="planDialog" aria-labelledby="siteAdminTitle">
+      <form id="siteAdminForm" class="planDialogInner adminContentForm">
+        <header class="planDialogHeader">
+          <div><p class="eyebrow">CONTENT ADMIN</p><h2 id="siteAdminTitle">站点内容与页脚</h2></div>
+          <button type="button" id="closeSiteAdmin" class="ghost dialogClose">关闭</button>
+        </header>
+        <p class="muted">保存后公开首页和登录后的工作台页脚会立即更新。链接每行使用“名称 | URL”。</p>
+        <div class="adminFieldGrid">
+          <label><span>中文品牌简介</span><textarea id="footerDescriptionZh" rows="4" maxlength="500"></textarea></label>
+          <label><span>English description</span><textarea id="footerDescriptionEn" rows="4" maxlength="500"></textarea></label>
+        </div>
+        <label><span>客服邮箱</span><input id="footerContactEmail" type="email" placeholder="support@example.com"></label>
+        <div class="adminFieldGrid">
+          <label><span>研究栏目链接</span><textarea id="footerResearchLinks" rows="7" placeholder="美股 | /us-stocks/&#10;公开报告 | /reports/"></textarea></label>
+          <label><span>公司栏目链接</span><textarea id="footerCompanyLinks" rows="7" placeholder="价格 | /pricing/&#10;关于 | /about/"></textarea></label>
+          <label><span>法律栏目链接</span><textarea id="footerLegalLinks" rows="7" placeholder="隐私政策 | /privacy.html&#10;服务条款 | /terms.html"></textarea></label>
+          <label><span>社交媒体链接</span><textarea id="footerSocialLinks" rows="7" placeholder="X / Twitter | https://x.com/example&#10;YouTube | https://youtube.com/@example"></textarea></label>
+        </div>
+        <div class="planActionButtons"><button type="submit" id="saveSiteFooter">保存并发布</button></div>
+        <p id="siteAdminStatus" class="paymentStatus" role="status"></p>
+      </form>
+    </dialog>
+
     <script src="/locales/zh-CN.js"></script>
     <script src="/locales/en.js"></script>
     <script src="/i18n.js"></script>
-    <script src="/app.js"></script>
+    <script src="/app.js?v=20260921-remove-kronos"></script>
   </body>
 </html>

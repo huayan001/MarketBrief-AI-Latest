@@ -2,10 +2,19 @@ let currentAnalysis = null;
 let priceChart = null;
 let indicatorChart = null;
 let latestScanResults = [];
+let latestMomentumScan = null;
+let momentumSchedule = null;
+let momentumCollapsed = false;
+let tradeReviewCollapsed = false;
+let robinhoodRadarData = null;
+let selectedRobinhoodPool = "";
+let robinhoodMarketRequest = 0;
+let robinhoodMarketDisplayedPool = "";
 let aiStatus = { configured: false, provider: "local_rules", model: "" };
 let recentCodesExpanded = false;
 let currentUser = null;
 let currentEntitlement = null;
+let currentSiteFooter = null;
 let watchSymbolsCache = [];
 let signalSnapshotsCache = {};
 let signalEventsCache = [];
@@ -445,7 +454,111 @@ function showApp() {
   if (currentUser?.email) {
     $("userChip").hidden = false;
     $("userEmail").textContent = currentUser.email;
+    $("siteAdminBtn").hidden = !currentUser.is_admin;
     renderPlanState();
+  }
+}
+
+function footerDescription(footer) {
+  return localeTag().startsWith("zh")
+    ? footer.description_zh || footer.description_en || ""
+    : footer.description_en || footer.description_zh || "";
+}
+
+function safeFooterHref(value) {
+  const href = String(value || "").trim();
+  return href.startsWith("/") || /^(https?:|mailto:)/i.test(href) ? href : "#";
+}
+
+function renderSiteFooter() {
+  const footer = currentSiteFooter;
+  if (!footer) return;
+  const columns = (footer.columns || []).map((column) => `
+    <section class="footerColumn">
+      <strong>${escapeHtml(column.title)}</strong>
+      ${(column.links || []).map((link) => `<a href="${escapeHtml(safeFooterHref(link.url))}">${escapeHtml(link.label)}</a>`).join("")}
+    </section>
+  `).join("");
+  const socials = (footer.socials || []).map((link) =>
+    `<a href="${escapeHtml(safeFooterHref(link.url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(link.label)}</a>`,
+  ).join("");
+  const contact = footer.contact_email
+    ? `<span class="footerContact"><a href="mailto:${escapeHtml(footer.contact_email)}">${escapeHtml(footer.contact_email)}</a></span>`
+    : "";
+  const html = `
+    <section class="footerBrand">
+      <strong>MarketBrief AI</strong>
+      <p>${escapeHtml(footerDescription(footer))}</p>
+      ${contact}
+      <div class="footerSocials">${socials}</div>
+      <span class="footerCopyright">© ${new Date().getFullYear()} MarketBrief AI</span>
+    </section>
+    ${columns}
+  `;
+  document.querySelectorAll("[data-site-footer]").forEach((element) => { element.innerHTML = html; });
+}
+
+async function loadSiteFooter() {
+  const data = await fetchJson("/api/site-footer");
+  currentSiteFooter = data.footer || {};
+  if (currentUser && data.is_admin !== undefined) {
+    currentUser.is_admin = Boolean(data.is_admin);
+    $("siteAdminBtn").hidden = !currentUser.is_admin;
+  }
+  renderSiteFooter();
+}
+
+function linksToText(links) {
+  return (links || []).map((item) => `${item.label} | ${item.url}`).join("\n");
+}
+
+function textToLinks(value) {
+  return String(value || "").split("\n").map((line) => {
+    const separator = line.indexOf("|");
+    if (separator < 0) return null;
+    const label = line.slice(0, separator).trim();
+    const url = line.slice(separator + 1).trim();
+    return label && url ? { label, url } : null;
+  }).filter(Boolean);
+}
+
+function openSiteAdmin() {
+  const footer = currentSiteFooter || {};
+  const columns = footer.columns || [];
+  $("footerDescriptionZh").value = footer.description_zh || "";
+  $("footerDescriptionEn").value = footer.description_en || "";
+  $("footerContactEmail").value = footer.contact_email || "";
+  $("footerResearchLinks").value = linksToText(columns[0]?.links);
+  $("footerCompanyLinks").value = linksToText(columns[1]?.links);
+  $("footerLegalLinks").value = linksToText(columns[2]?.links);
+  $("footerSocialLinks").value = linksToText(footer.socials);
+  $("siteAdminStatus").textContent = "";
+  $("siteAdminDialog").showModal();
+}
+
+async function saveSiteFooter(event) {
+  event.preventDefault();
+  $("saveSiteFooter").disabled = true;
+  const footer = {
+    description_zh: $("footerDescriptionZh").value,
+    description_en: $("footerDescriptionEn").value,
+    contact_email: $("footerContactEmail").value,
+    columns: [
+      { title: "研究", links: textToLinks($("footerResearchLinks").value) },
+      { title: "公司", links: textToLinks($("footerCompanyLinks").value) },
+      { title: "法律", links: textToLinks($("footerLegalLinks").value) },
+    ],
+    socials: textToLinks($("footerSocialLinks").value),
+  };
+  try {
+    const data = await fetchJson("/api/admin/site-footer", { method: "POST", body: JSON.stringify(footer) });
+    currentSiteFooter = data.footer;
+    renderSiteFooter();
+    $("siteAdminStatus").textContent = "已保存并发布。";
+  } catch (error) {
+    $("siteAdminStatus").textContent = error.message;
+  } finally {
+    $("saveSiteFooter").disabled = false;
   }
 }
 
@@ -530,6 +643,9 @@ async function submitLogin(event) {
 }
 
 async function logout() {
+  ++robinhoodMarketRequest;
+  selectedRobinhoodPool = "";
+  robinhoodMarketDisplayedPool = "";
   try {
     await fetchJson("/api/auth/logout", { method: "POST", body: "{}" });
   } catch {
@@ -793,6 +909,38 @@ function renderIndicators(indicators, performance) {
     .join("");
 }
 
+function formatPriceTooltip(params) {
+  const items = Array.isArray(params) ? params : [params];
+  const date = escapeHtml(items[0]?.axisValueLabel || items[0]?.name || "");
+  const rows = items.map((item) => {
+    const marker = item.marker || "";
+    const name = escapeHtml(item.seriesName || "");
+    if (item.seriesType === "candlestick" && Array.isArray(item.value)) {
+      const [open, close, low, high] = item.value.slice(-4);
+      return `${marker}${name}<div class="chartTooltipOhlc">
+        <span>${escapeHtml(t("chart.open"))} ${fmt(open)}</span>
+        <span>${escapeHtml(t("chart.high"))} ${fmt(high)}</span>
+        <span>${escapeHtml(t("chart.low"))} ${fmt(low)}</span>
+        <span>${escapeHtml(t("chart.close"))} ${fmt(close)}</span>
+      </div>`;
+    }
+    return `${marker}${name} <strong>${fmt(item.value)}</strong>`;
+  });
+  return `<div class="chartTooltipDate">${date}</div>${rows.join("<br>")}`;
+}
+
+function positionPriceTooltip(point, _params, _dom, _rect, size) {
+  const gap = 28;
+  const viewWidth = size.viewSize[0];
+  const viewHeight = size.viewSize[1];
+  const boxWidth = size.contentSize[0];
+  const boxHeight = size.contentSize[1];
+  let left = point[0] + gap;
+  if (left + boxWidth > viewWidth - 8) left = point[0] - boxWidth - gap;
+  const top = Math.max(8, Math.min(point[1] - 24, viewHeight - boxHeight - 8));
+  return [Math.max(8, left), top];
+}
+
 function renderCharts(data) {
   if (!priceChart) priceChart = echarts.init($("priceChart"));
   if (!indicatorChart) indicatorChart = echarts.init($("indicatorChart"));
@@ -823,12 +971,19 @@ function renderCharts(data) {
   const lower = data.series.map((row) => row.boll_lower);
   priceChart.setOption({
     animation: false,
-    tooltip: { trigger: "axis" },
+    tooltip: {
+      trigger: "axis",
+      confine: true,
+      formatter: formatPriceTooltip,
+      position: positionPriceTooltip,
+    },
     legend: { top: 0, data: [t("chart.candle"), t("chart.close"), "MA20", "MA60", t("chart.bollUpper"), t("chart.bollLower")] },
-    grid: { left: 55, right: 20, top: 45, bottom: 42 },
+    grid: { left: 55, right: 20, top: 45, bottom: 82 },
     xAxis: { type: "category", data: dates, boundaryGap: true, axisLabel: { hideOverlap: true } },
     yAxis: { scale: true },
-    dataZoom: [{ type: "inside" }, { type: "slider", height: 22, bottom: 8 }],
+    // Keep zooming explicit: the plot itself does not react to wheel/drag.
+    // Users change the visible range only through the blue slider.
+    dataZoom: [{ type: "slider", height: 20, bottom: 20, brushSelect: false }],
     series: [
       { name: t("chart.candle"), type: "candlestick", data: candle, itemStyle: { color: "#15803d", color0: "#b42318", borderColor: "#15803d", borderColor0: "#b42318" } },
       { name: t("chart.close"), type: "line", data: close, showSymbol: false, smooth: true, lineStyle: { width: 1.3, color: "#334155" } },
@@ -1088,7 +1243,9 @@ async function persistWatchSymbols(symbols) {
   signalSnapshotsCache = Object.fromEntries(
     Object.entries(signalSnapshotsCache).filter(([symbol]) => allowed.has(symbol)),
   );
+  signalEventsCache = signalEventsCache.filter((event) => allowed.has(event.symbol));
   renderWatchList();
+  renderSignalChanges();
 }
 
 async function loadWatchlist() {
@@ -1188,6 +1345,313 @@ async function scanWatchlist() {
   } finally {
     $("scanWatch").disabled = false;
     $("scanWatchTop").disabled = false;
+  }
+}
+
+function momentumMacdLabel(item) {
+  if (item.checks?.macd_cross) return t("momentum.cross");
+  if (item.checks?.macd_open) return t("momentum.open");
+  return t("momentum.neutral");
+}
+
+function renderMomentumScan(data) {
+  const rows = data?.candidates || [];
+  const toggle = $("toggleMomentumResults");
+  toggle.hidden = !rows.length;
+  toggle.textContent = t(momentumCollapsed ? "momentum.expand" : "momentum.collapse");
+  toggle.setAttribute("aria-expanded", momentumCollapsed ? "false" : "true");
+  $("momentumBody").hidden = momentumCollapsed && rows.length > 0;
+  const scannedAt = data?.as_of
+    ? new Date(data.as_of).toLocaleTimeString(localeTag(), { hour: "2-digit", minute: "2-digit" })
+    : "--";
+  $("momentumScanMeta").textContent = t("momentum.done", {
+    universe: fmtCompact(data?.universe_count),
+    count: rows.length,
+    time: scannedAt,
+  });
+  $("momentumStatus").className = "momentumStatus";
+  $("momentumStatus").innerHTML = rows.length
+    ? `<strong>${escapeHtml(t("momentum.done", { universe: fmtCompact(data?.universe_count), count: rows.length, time: scannedAt }))}</strong>`
+    : `<strong>${escapeHtml(t("momentum.noResult"))}</strong>`;
+  $("momentumResults").hidden = !rows.length;
+  $("momentumResults").innerHTML = rows.length
+    ? `<table class="momentumTable">
+        <thead><tr>
+          <th>${escapeHtml(t("momentum.signal"))}</th><th>${escapeHtml(t("momentum.stock"))}</th>
+          <th>${escapeHtml(t("momentum.price"))}</th><th>${escapeHtml(t("momentum.volume"))}</th>
+          <th>${escapeHtml(t("momentum.float"))}</th><th>${escapeHtml(t("momentum.turnover"))}</th>
+          <th>${escapeHtml(t("momentum.macd"))}</th><th>${escapeHtml(t("momentum.score"))}</th>
+        </tr></thead>
+        <tbody>${rows.map((item) => `<tr class="${item.alert ? "isAlert" : ""}">
+          <td><span class="momentumBadge ${item.alert ? "alert" : ""}">${escapeHtml(item.alert ? t("momentum.alert") : t("momentum.watch"))}</span></td>
+          <td><div class="momentumTicker"><strong>${escapeHtml(item.symbol || "--")}</strong><span title="${escapeHtml(item.name || "")}">${escapeHtml(item.name || "--")}</span></div></td>
+          <td><strong>$${fmt(item.price)}</strong><br><span class="positive">+${fmt(item.change_pct)}%</span></td>
+          <td>${fmtCompact(item.volume)}</td><td>${fmtCompact(item.float_shares)}</td>
+          <td>${item.volume_float_ratio == null ? "--" : `${fmt(item.volume_float_ratio)}×`}</td>
+          <td>${escapeHtml(momentumMacdLabel(item))}</td><td><strong class="momentumScore">${fmt(item.score, 0)}</strong></td>
+        </tr>`).join("")}</tbody>
+      </table>`
+    : "";
+}
+
+function formatMomentumMarketTime(value) {
+  if (!value) return "--";
+  return new Intl.DateTimeFormat(localeTag(), {
+    timeZone: "America/New_York",
+    month: "short",
+    day: "numeric",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(value));
+}
+
+function renderMomentumSchedule() {
+  if (!momentumSchedule || latestMomentumScan) return;
+  $("momentumScanMeta").textContent = t("momentum.scheduleTimes");
+  if (momentumSchedule.in_recommended_window) {
+    $("momentumReadyTitle").textContent = t("momentum.windowOpen");
+    $("momentumReadyBody").textContent = t("momentum.windowOpenBody");
+  } else {
+    $("momentumReadyTitle").textContent = t("momentum.windowClosed");
+    $("momentumReadyBody").textContent = t("momentum.nextScan", {
+      time: formatMomentumMarketTime(momentumSchedule.next_scan_at),
+    });
+  }
+}
+
+async function loadMomentumSchedule() {
+  try {
+    momentumSchedule = await fetchJson("/api/us-momentum/schedule");
+  } catch {
+    momentumSchedule = null;
+    $("momentumScanMeta").textContent = t("momentum.manualOnly");
+  }
+  renderMomentumSchedule();
+}
+
+function toggleMomentumResults() {
+  if (!latestMomentumScan?.candidates?.length) return;
+  momentumCollapsed = !momentumCollapsed;
+  renderMomentumScan(latestMomentumScan);
+}
+
+async function runMomentumScan() {
+  const button = $("runMomentumScan");
+  button.disabled = true;
+  button.textContent = t("momentum.running");
+  momentumCollapsed = false;
+  $("toggleMomentumResults").hidden = true;
+  $("momentumBody").hidden = false;
+  $("momentumStatus").className = "momentumStatus";
+  $("momentumStatus").innerHTML = `<strong>${escapeHtml(t("momentum.scanningTitle"))}</strong><span>${escapeHtml(t("momentum.scanningBody"))}</span>`;
+  $("momentumResults").hidden = true;
+  try {
+    latestMomentumScan = await fetchJson("/api/us-momentum/scan", { method: "POST", body: "{}" });
+    renderMomentumScan(latestMomentumScan);
+  } catch (error) {
+    $("momentumStatus").className = "momentumStatus error";
+    $("momentumStatus").innerHTML = `<strong>${escapeHtml(t("status.scanFailed"))}</strong><span>${escapeHtml(error.message)}</span>`;
+  } finally {
+    button.disabled = false;
+    button.textContent = t("momentum.run");
+  }
+}
+
+function formatRobinhoodTime(value) {
+  if (!value) return "--";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "--";
+  return parsed.toLocaleString(localeTag(), {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function robinhoodAgeLabel(minutes) {
+  if (minutes === null || minutes === undefined) return "--";
+  if (minutes < 60) return `${minutes} 分钟`;
+  if (minutes < 1440) return `${fmt(minutes / 60, 1)} 小时`;
+  return `${fmt(minutes / 1440, 1)} 天`;
+}
+
+function robinhoodLiquidityLabel(pool) {
+  if (pool.liquidity_value === null || pool.liquidity_value === undefined) return "待报价";
+  if (pool.quote_symbol === "USDG") return `$${fmtCompact(pool.liquidity_value)}`;
+  return `${fmt(pool.liquidity_value, 3)} ${escapeHtml(pool.quote_symbol || "")}`;
+}
+
+function filteredRobinhoodPools() {
+  const pools = robinhoodRadarData?.pools || [];
+  const filter = $("robinhoodRiskFilter").value;
+  return filter === "all" ? pools : pools.filter((pool) => pool.risk_level === filter);
+}
+
+function renderRobinhoodMarket(pool, data = null, loading = false) {
+  const number = (value) => value !== null && value !== undefined && Number.isFinite(Number(value));
+  const usd = (value, price = false) => !number(value) ? "暂无数据" : "$" + (price
+    ? Number(value).toLocaleString("en-US", { maximumSignificantDigits: 6 }) : fmtCompact(Number(value)));
+  const change = data?.change_24h;
+  const metrics = [
+    ["市值", usd(data?.market_cap)], ["价格", usd(data?.price_usd, true)],
+    ["24小时涨跌", number(change) ? `${change > 0 ? "+" : ""}${fmt(change, 2)}%` : "暂无数据", number(change) ? (change < 0 ? "negative" : change > 0 ? "positive" : "") : ""],
+    ["24小时交易量", usd(data?.volume_24h)], ["流动性", usd(data?.liquidity_usd)],
+    ["持有者", number(data?.holders) ? fmt(data.holders, 0) : "暂无数据"],
+  ];
+  $("robinhoodMarket").innerHTML = `
+    <div class="robinhoodCaseLabel">所选币种 · 最新行情</div>
+    <div class="robinhoodCaseTitle"><div><strong>${escapeHtml(pool.symbol || "--")}</strong><span>${escapeHtml(pool.name || "")}</span></div>
+      <span class="robinhoodRiskBadge snapshot">${loading ? "更新中" : data?.status === "ok" ? "已更新" : "数据不完整"}</span></div>
+    <div class="robinhoodCaseMetrics">${metrics.map(([label, value, cls]) => `<div><span>${label}</span><strong class="${cls || ""}">${loading ? "读取中…" : value}</strong></div>`).join("")}</div>
+    <p class="robinhoodCaseNote">${loading ? "正在读取所选交易池行情" : `查询于 ${escapeHtml(formatRobinhoodTime(data?.checked_at))} · 点击左侧币种更新`}</p>
+    <p class="robinhoodCaseNote">${escapeHtml((data?.sources || []).join(" · "))}${data?.notes?.length ? `<br>${escapeHtml(data.notes.join("；"))}` : ""}</p>`;
+}
+
+async function loadRobinhoodMarket(pool) {
+  const request = ++robinhoodMarketRequest;
+  if (!pool) {
+    $("robinhoodMarket").innerHTML = `<div class="robinhoodRadarEmpty">选择左侧币种查看最新行情</div>`;
+    return;
+  }
+  renderRobinhoodMarket(pool, null, true);
+  try {
+    const data = await fetchJson(`/api/robinhood-radar/market?asset=${encodeURIComponent(pool.asset)}&pool=${encodeURIComponent(pool.pool)}`);
+    if (request !== robinhoodMarketRequest) return;
+    renderRobinhoodMarket(pool, data);
+  } catch (error) {
+    if (request !== robinhoodMarketRequest) return;
+    renderRobinhoodMarket(pool, { status: "unavailable", checked_at: new Date().toISOString(), notes: [error.message] });
+  }
+}
+
+function renderRobinhoodPoolDetail(pool) {
+  if ((pool?.pool || "") !== robinhoodMarketDisplayedPool) {
+    robinhoodMarketDisplayedPool = pool?.pool || "";
+    loadRobinhoodMarket(pool);
+  }
+  if (!pool) {
+    $("robinhoodPoolDetail").innerHTML = `<strong>选择左侧新池查看详情</strong><span>这里会显示池地址、创建交易、供应量和全部风险标记。</span>`;
+    return;
+  }
+  const supply = pool.total_supply == null ? "--" : fmtCompact(pool.total_supply);
+  $("robinhoodPoolDetail").innerHTML = `
+    <strong>${escapeHtml(pool.symbol || "--")} · ${escapeHtml(pool.name || "未识别代币")}</strong>
+    <span>初筛分 ${fmt(pool.screening_score, 0)}/100 · ${escapeHtml(pool.venue || "--")} · 费率 ${pool.fee_pct == null ? "--" : `${fmt(pool.fee_pct, 2)}%`}</span>
+    <span>供应量 ${supply} · 字节码 ${fmt(pool.code_bytes, 0)} bytes · 创建于 ${formatRobinhoodTime(pool.created_at)}</span>
+    <span>资产地址 ${escapeHtml(pool.asset || "--")}</span>
+    <span>池地址 ${escapeHtml(pool.pool || "--")}</span>
+    <div class="robinhoodFlagList">${(pool.flags || []).map((flag) => `<span>${escapeHtml(flag)}</span>`).join("")}</div>
+    <div class="robinhoodDetailLinks">
+      <a href="${escapeHtml(pool.explorer_url || "#")}" target="_blank" rel="noreferrer">代币合约</a>
+      <a href="${escapeHtml(pool.pool_url || "#")}" target="_blank" rel="noreferrer">交易池</a>
+      <a href="${escapeHtml(pool.tx_url || "#")}" target="_blank" rel="noreferrer">创建交易</a>
+    </div>`;
+}
+
+function renderRobinhoodRadar() {
+  if (!robinhoodRadarData) return;
+  const { chain = {}, scan = {}, methodology = {} } = robinhoodRadarData;
+  $("robinhoodConnection").className = "robinhoodConnection online";
+  $("robinhoodConnection").textContent = `${chain.status === "online" ? "链已连接" : "状态未知"} · ${chain.rpc_mode === "public" ? "公共 RPC" : "自定义 RPC"}`;
+  $("robinhoodCheckedAt").textContent = `更新于 ${formatRobinhoodTime(scan.checked_at)}${robinhoodRadarData.cached ? " · 30 秒缓存" : ""}`;
+  $("robinhoodHeadBlock").textContent = fmt(chain.head_block, 0);
+  $("robinhoodPoolCount").textContent = fmt(scan.pool_count, 0);
+  $("robinhoodReviewCount").textContent = fmt(scan.review_count, 0);
+  $("robinhoodHighRiskCount").textContent = fmt(scan.high_risk_count, 0);
+  $("robinhoodCoverage").textContent = `${methodology.coverage || "Uniswap V2/V3"} · #${fmt(scan.from_block, 0)}–#${fmt(scan.to_block, 0)}`;
+  $("robinhoodMethodText").textContent = `${methodology.meaning || ""} ${methodology.missing || ""}`.trim();
+
+  const pools = filteredRobinhoodPools();
+  $("robinhoodVisibleCount").textContent = `${pools.length} 个结果`;
+  if (!pools.length) {
+    $("robinhoodPoolTable").innerHTML = `<div class="robinhoodRadarEmpty"><strong>这个筛选条件下没有新池</strong><span>可以切换到“全部新池”或稍后刷新。</span></div>`;
+    renderRobinhoodPoolDetail(null);
+    return;
+  }
+  if (!pools.some((pool) => pool.pool === selectedRobinhoodPool)) selectedRobinhoodPool = pools[0].pool;
+  $("robinhoodPoolTable").innerHTML = `
+    <table class="robinhoodTable">
+      <thead><tr><th>代币</th><th>交易池</th><th>流动性</th><th>池龄</th><th>初筛</th><th>状态</th></tr></thead>
+      <tbody>${pools.map((pool) => `
+        <tr data-robinhood-pool="${escapeHtml(pool.pool || "")}" class="${pool.pool === selectedRobinhoodPool ? "selected" : ""}">
+          <td><div class="robinhoodTokenName"><strong>${escapeHtml(pool.symbol || "--")}</strong><span title="${escapeHtml(pool.name || "")}">${escapeHtml(pool.name || "未识别代币")}</span></div></td>
+          <td>${escapeHtml(pool.venue || "--")}<br><span class="muted">${escapeHtml(pool.quote_symbol || "--")} · ${pool.fee_pct == null ? "--" : `${fmt(pool.fee_pct, 2)}%`}</span></td>
+          <td>${robinhoodLiquidityLabel(pool)}</td>
+          <td>${robinhoodAgeLabel(pool.age_minutes)}</td>
+          <td><strong class="robinhoodScore">${fmt(pool.screening_score, 0)}</strong></td>
+          <td><span class="robinhoodRiskBadge ${escapeHtml(pool.risk_level || "high")}">${pool.risk_level === "review" ? "值得复核" : "高风险"}</span></td>
+        </tr>`).join("")}</tbody>
+    </table>`;
+  renderRobinhoodPoolDetail(pools.find((pool) => pool.pool === selectedRobinhoodPool));
+}
+
+async function loadRobinhoodRadar(force = false) {
+  const button = $("refreshRobinhoodRadar");
+  button.disabled = true;
+  button.textContent = "扫描中...";
+  $("robinhoodConnection").className = "robinhoodConnection checking";
+  $("robinhoodConnection").textContent = "正在连接公共 RPC";
+  try {
+    robinhoodRadarData = await fetchJson(`/api/robinhood-radar${force ? "?refresh=1" : ""}`);
+    renderRobinhoodRadar();
+  } catch (error) {
+    $("robinhoodConnection").className = "robinhoodConnection error";
+    $("robinhoodConnection").textContent = "链上数据不可用";
+    $("robinhoodCheckedAt").textContent = "未连接钱包，资金不受影响";
+    $("robinhoodPoolTable").innerHTML = `<div class="robinhoodRadarEmpty error"><strong>这次没有读到链上数据</strong><span>${escapeHtml(error.message)}</span></div>`;
+  } finally {
+    button.disabled = false;
+    button.textContent = "刷新链上数据";
+  }
+}
+
+function renderTradeReview(data) {
+  const summary = data?.summary || {};
+  const trades = data?.trades || [];
+  const issues = Object.entries(data?.issue_counts || {}).sort((a, b) => b[1] - a[1]);
+  const toggle = $("toggleTradeReview");
+  toggle.hidden = false;
+  toggle.textContent = tradeReviewCollapsed ? "展开" : "收起";
+  toggle.setAttribute("aria-expanded", tradeReviewCollapsed ? "false" : "true");
+  $("tradeReviewBody").hidden = tradeReviewCollapsed;
+  $("tradeReviewBody").innerHTML = `
+    <div class="tradeReviewMetrics">
+      <article><span>已配对交易</span><strong>${fmt(summary.trade_count, 0)}</strong></article>
+      <article><span>胜率</span><strong>${fmt(summary.win_rate, 1)}%</strong></article>
+      <article><span>平均盈利</span><strong class="positive">$${fmt(summary.average_win)}</strong></article>
+      <article><span>平均亏损</span><strong class="negative">$${fmt(summary.average_loss)}</strong></article>
+      <article><span>已实现盈亏</span><strong class="${Number(summary.net_pnl) >= 0 ? "positive" : "negative"}">$${fmt(summary.net_pnl)}</strong></article>
+    </div>
+    <div class="tradeIssueSummary">${issues.length ? issues.map(([name, count]) => `<span>${escapeHtml(name)} · ${count}</span>`).join("") : "暂未识别出重复问题"}</div>
+    <div class="momentumResults">${trades.length ? `<table class="momentumTable tradeReviewTable"><thead><tr><th>股票</th><th>入场/离场</th><th>价格</th><th>数量</th><th>盈亏</th><th>问题分类</th></tr></thead><tbody>${trades.map((trade) => `<tr><td><strong>${escapeHtml(trade.symbol || "--")}</strong></td><td>${escapeHtml(trade.entry_time || "--")} → ${escapeHtml(trade.exit_time || "--")}</td><td>$${fmt(trade.entry_price)} → $${fmt(trade.exit_price)}</td><td>${fmt(trade.quantity, 0)}</td><td class="${Number(trade.pnl) >= 0 ? "positive" : "negative"}">$${fmt(trade.pnl)}</td><td>${(trade.issues || []).map((issue) => `<span class="reviewIssue">${escapeHtml(issue)}</span>`).join("") || "—"}</td></tr>`).join("")}</tbody></table>` : `<div class="momentumStatus"><strong>没有可配对的已完成交易</strong><span>读取到 ${fmt(data?.execution_count, 0)} 条成交记录。</span></div>`}</div>`;
+}
+
+function toggleTradeReview() {
+  tradeReviewCollapsed = !tradeReviewCollapsed;
+  $("tradeReviewBody").hidden = tradeReviewCollapsed;
+  $("toggleTradeReview").textContent = tradeReviewCollapsed ? "展开" : "收起";
+  $("toggleTradeReview").setAttribute("aria-expanded", tradeReviewCollapsed ? "false" : "true");
+}
+
+async function loadTradeReview() {
+  const button = $("loadTradeReview");
+  tradeReviewCollapsed = false;
+  $("toggleTradeReview").hidden = true;
+  $("tradeReviewBody").hidden = false;
+  button.disabled = true;
+  button.textContent = "读取中...";
+  $("tradeReviewBody").innerHTML = `<div class="momentumStatus"><strong>正在读取成交记录</strong><span>仅执行历史成交查询。</span></div>`;
+  try {
+    renderTradeReview(await fetchJson("/api/trade-review"));
+  } catch (error) {
+    $("tradeReviewBody").innerHTML = `<div class="momentumStatus error"><strong>复盘失败</strong><span>${escapeHtml(error.message)}</span></div>`;
+  } finally {
+    button.disabled = false;
+    button.textContent = "读取成交并复盘";
   }
 }
 
@@ -1402,14 +1866,17 @@ async function deleteHistoricalReport(reportId) {
 
 async function bootstrapApp() {
   await Promise.all([
+    loadSiteFooter(),
     loadAiStatus(),
     loadReports(),
     loadWatchlist(),
     loadSignalState(),
+    loadMomentumSchedule(),
     restorePaymentState(),
     loadBriefPreferences(),
   ]);
   renderRecentCodes();
+  loadRobinhoodRadar().catch(() => {});
 }
 
 async function loadBriefPreferences() {
@@ -1504,7 +1971,13 @@ async function runBriefNow() {
     const data = await fetchJson("/api/brief/run", { method: "POST", body: "{}" });
     if (data.status === "already_run") $("briefStatus").textContent = "今天已经生成过简报。";
     else if (data.status === "failed") $("briefStatus").textContent = data.error || "简报生成失败。";
-    else $("briefStatus").textContent = `简报已生成，成功发送 ${data.sent || 0} 个渠道。`;
+    else if ((data.sent || 0) === 0 && data.brief?.message) {
+      $("briefStatus").textContent = `简报已生成，但未发送：${data.brief.message}`;
+    } else if ((data.sent || 0) === 0) {
+      $("briefStatus").textContent = "简报已生成，但所有通知渠道均未发送成功，请查看最近推送记录。";
+    } else {
+      $("briefStatus").textContent = `简报已生成，成功发送 ${data.sent} 个渠道。`;
+    }
     await loadBriefPreferences();
   } catch (error) {
     $("briefStatus").textContent = error.message;
@@ -1514,23 +1987,35 @@ async function runBriefNow() {
 }
 
 async function testBriefChannel() {
-  const selected = document.querySelector("[data-brief-channel]:checked");
-  if (!selected) {
-    $("briefStatus").textContent = "请先选择一个通知渠道。";
-    return;
-  }
+  const channel = $("channelConfigType").value;
   $("testBriefChannel").disabled = true;
-  $("briefStatus").textContent = `正在测试 ${selected.value}...`;
+  $("briefStatus").textContent = `正在测试 ${channel}...`;
   try {
     const data = await fetchJson("/api/brief/test", {
       method: "POST",
-      body: JSON.stringify({ channel: selected.value }),
+      body: JSON.stringify({ channel }),
     });
     $("briefStatus").textContent = `${data.channel} 测试推送成功（尝试 ${data.attempts} 次）。`;
   } catch (error) {
     $("briefStatus").textContent = error.message;
   } finally {
     $("testBriefChannel").disabled = false;
+  }
+}
+
+async function testBriefEmail() {
+  $("testBriefEmail").disabled = true;
+  $("briefStatus").textContent = "正在测试邮件 SMTP...";
+  try {
+    const data = await fetchJson("/api/brief/test", {
+      method: "POST",
+      body: JSON.stringify({ channel: "email" }),
+    });
+    $("briefStatus").textContent = `测试邮件发送成功（尝试 ${data.attempts} 次）。`;
+  } catch (error) {
+    $("briefStatus").textContent = error.message;
+  } finally {
+    $("testBriefEmail").disabled = false;
   }
 }
 
@@ -1613,6 +2098,7 @@ $("closeBriefDialog").addEventListener("click", () => $("briefDialog").close());
 $("briefForm").addEventListener("submit", saveBriefPreferences);
 $("runBriefNow").addEventListener("click", runBriefNow);
 $("testBriefChannel").addEventListener("click", testBriefChannel);
+$("testBriefEmail").addEventListener("click", testBriefEmail);
 $("channelConfigType").addEventListener("change", updateChannelConfigFields);
 $("saveChannelConfig").addEventListener("click", saveChannelConfig);
 $("deleteChannelConfig").addEventListener("click", deleteChannelConfig);
@@ -1623,6 +2109,9 @@ $("briefDeliveries").addEventListener("click", (event) => {
 $("feedbackBtn").addEventListener("click", () => $("feedbackDialog").showModal());
 $("closeFeedbackDialog").addEventListener("click", () => $("feedbackDialog").close());
 $("feedbackForm").addEventListener("submit", submitFeedback);
+$("siteAdminBtn").addEventListener("click", openSiteAdmin);
+$("closeSiteAdmin").addEventListener("click", () => $("siteAdminDialog").close());
+$("siteAdminForm").addEventListener("submit", saveSiteFooter);
 $("cancelSubscriptionBtn").addEventListener("click", cancelCurrentSubscription);
 $("planDialog").addEventListener("click", (event) => {
   if (event.target === $("planDialog")) $("planDialog").close();
@@ -1662,6 +2151,19 @@ $("mobileListsToggle").addEventListener("click", () => {
 });
 $("scanWatch").addEventListener("click", scanWatchlist);
 $("scanWatchTop").addEventListener("click", scanWatchlist);
+$("runMomentumScan").addEventListener("click", runMomentumScan);
+$("refreshRobinhoodRadar").addEventListener("click", () => loadRobinhoodRadar(true));
+$("robinhoodRiskFilter").addEventListener("change", renderRobinhoodRadar);
+$("robinhoodPoolTable").addEventListener("click", (event) => {
+  const row = event.target.closest("[data-robinhood-pool]");
+  if (!row || !robinhoodRadarData) return;
+  selectedRobinhoodPool = row.dataset.robinhoodPool;
+  robinhoodMarketDisplayedPool = "";
+  renderRobinhoodRadar();
+});
+$("loadTradeReview").addEventListener("click", loadTradeReview);
+$("toggleTradeReview").addEventListener("click", toggleTradeReview);
+$("toggleMomentumResults").addEventListener("click", toggleMomentumResults);
 $("scanSort").addEventListener("change", renderScanResults);
 $("symbolSuggestions").addEventListener("click", (event) => {
   if (event.target.closest("[data-close-suggestions]")) {
@@ -1794,11 +2296,14 @@ window.rerenderI18n = function rerenderI18n() {
     renderSignalChanges();
     if (!currentAnalysis) $("scanSummary").textContent = t("scanner.empty");
   }
+  if (latestMomentumScan) renderMomentumScan(latestMomentumScan);
+  else renderMomentumSchedule();
 };
 
 (async function init() {
   applyIdleShellCopy();
   setStatusKey("topbar.statusIdle");
+  await loadSiteFooter().catch(() => {});
   const loggedIn = await refreshSession();
   if (loggedIn) await bootstrapApp();
 })();

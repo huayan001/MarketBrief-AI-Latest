@@ -13,6 +13,11 @@ import server
 
 
 class ReportSafetyTests(unittest.TestCase):
+    def test_email_is_masked_for_authenticated_api_responses(self):
+        self.assertEqual(server.mask_email("hyan9677@gmail.com"), "hya***@gmail.com")
+        self.assertEqual(server.mask_email("a@example.com"), "a***@example.com")
+        self.assertNotIn("secret", server.public_user({"id": 1, "email": "secret@example.com"})["email"])
+
     def test_key_levels_stay_on_the_correct_side_of_price(self):
         support, resistance = server.classify_key_levels(
             100.0,
@@ -76,6 +81,9 @@ class SecurityTests(unittest.TestCase):
             self.assertTrue(security.request_origin_allowed(handler))
         with mock.patch.dict(os.environ, {"APP_ENV": "production"}, clear=False):
             self.assertFalse(security.request_origin_allowed(handler))
+
+    def test_smtp_app_password_removes_copied_grouping_whitespace(self):
+        self.assertEqual(auth.normalize_smtp_password("abcd\u00a0efgh ijkl\tmnop"), "abcdefghijklmnop")
 
 
 class NotificationTests(unittest.TestCase):
